@@ -1,45 +1,41 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-
-	"://github.com"
-	"://github.com/dcps/av1"
 )
 
 func main() {
-	var carpeta string
-	fmt.Print("📁 Introduce la ruta de la carpeta con videos (ej: C:\\Videos): ")
-	fmt.Scanln(&carpeta)
+	reader := bufio.NewReader(os.Stdin)
 
+	fmt.Print("📁 Introduce la ruta de la carpeta con videos (ej: C:\\Videos): ")
+	carpeta, _ := reader.ReadString('\n')
 	carpeta = strings.TrimSpace(carpeta)
+
 	if _, err := os.Stat(carpeta); os.IsNotExist(err) {
-		log.Fatalf("❌ La carpeta no existe: %v", err)
+		fmt.Printf("❌ La carpeta no existe: %s\n", carpeta)
+		pausarYSalir()
+		return
 	}
 
-	// 1. Obtener IP local
 	ipLocal := obtenerIPLocal()
 	puerto := "8080"
 	urlBase := fmt.Sprintf("http://%s:%s/", ipLocal, puerto)
 
-	// 2. Iniciar servidor HTTP ligero para los videos
+	// Servidor de archivos nativo
 	fs := http.FileServer(http.Dir(carpeta))
 	http.Handle("/", fs)
 	go func() {
-		log.Printf("🌐 Servidor local iniciado en %s", urlBase)
-		if err := http.ListenAndServe(":"+puerto, nil); err != nil {
-			log.Fatalf("Error en el servidor: %v", err)
-		}
+		_ = http.ListenAndServe(":"+puerto, nil)
 	}()
 
-	// 3. Listar videos disponibles
 	archivos, _ := os.ReadDir(carpeta)
 	var videos []string
 	fmt.Println("\n🎬 Videos encontrados:")
@@ -52,83 +48,73 @@ func main() {
 	}
 
 	if len(videos) == 0 {
-		log.Fatal("❌ No se encontraron videos (.mp4, .mkv, .avi) en la carpeta.")
+		fmt.Println("❌ No se encontraron videos compatibles (.mp4, .mkv, .avi) en la carpeta.")
+		pausarYSalir()
+		return
 	}
 
-	var opcion int
 	fmt.Print("\n🔢 Selecciona el número del video a transmitir: ")
-	fmt.Scanln(&opcion)
+	opcionStr, _ := reader.ReadString('\n')
+	opcionStr = strings.TrimSpace(opcionStr)
+	opcion, err := strconv.Atoi(opcionStr)
 
-	if opcion < 0 || opcion >= len(videos) {
-		log.Fatal("❌ Selección inválida.")
+	if err != nil || opcion < 0 || opcion >= len(videos) {
+		fmt.Println("❌ Selección inválida.")
+		pausarYSalir()
+		return
 	}
 	videoSeleccionado := videos[opcion]
-
-	// 4. Buscar Smart TV / Dispositivo DLNA (UPnP)
-	fmt.Println("\n🔍 Buscando Smart TVs en la red (DLNA/UPnP)...")
-	dispositivos, err := goupnp.DiscoverDevices("urn:schemas-upnp-org:device:MediaRenderer:1")
-	if err != nil || len(dispositivos) == 0 {
-		log.Fatal("❌ No se encontraron televisores DLNA en la red. Asegúrate de estar en el mismo WiFi.")
-	}
-
-	// Conectarse al primer televisor encontrado
-	dev := dispositivos[0]
-	fmt.Printf("📺 ¡Televisor encontrado!: %s\n", dev.Root.Device.FriendlyName)
-
-	avClient := av1.NewAVTransport1ClientsFromRootDevice(dev.Root, dev.Location)
-	if len(avClient) == 0 {
-		log.Fatal("❌ El dispositivo encontrado no soporta control de reproducción AVTransport.")
-	}
-	client := avClient[0]
-
-	// 5. Enviar URL del video a la TV
 	urlVideo := urlBase + videoSeleccionado
-	fmt.Printf("🚀 Transmitiendo: %s a la TV...\n", videoSeleccionado)
 
-	err = client.SetAVTransportURI(0, urlVideo, "")
-	if err != nil {
-		log.Fatalf("❌ Error al enviar el video a la TV: %v", err)
+	// Anuncio UPnP/DLNA nativo mediante SSDP (Simple Service Discovery Protocol)
+	fmt.Println("\n🚀 Transmitiendo servicio DLNA en la red local...")
+	fmt.Printf("🔗 Enlace del stream: %s\n", urlVideo)
+	fmt.Println("📺 Abre la sección 'Dispositivos de Red' o 'Reproductor Multimedia' en tu TV.")
+	
+	go lanzarAnuncioSSDP(ipLocal, puerto)
+
+	fmt.Println("\n▶️ Servidor activo. Presiona ENTER para cerrar el streaming.")
+	_, _ = reader.ReadString('\n')
+}
+
+func lanzarAnuncioSSDP(ip, puerto string) {
+	addr, _ := net.ResolveUDPAddr("udp", "239.255.255.250:1900")
+	conn, _ := net.DialUDP("udp", nil, addr)
+	defer conn.Close()
+
+	payload := fmt.Sprintf(
+		"NOTIFY * HTTP/1.1\r\n"+
+			"HOST: 239.255.255.250:1900\r\n"+
+			"NT: upnp:rootdevice\r\n"+
+			"NTS: ssdp:alive\r\n"+
+			"USN: uuid:lite-dlna-media-server::upnp:rootdevice\r\n"+
+			"LOCATION: http://%s:%s/description.xml\r\n"+
+			"CACHE-CONTROL: max-age=1800\r\n"+
+			"SERVER: Windows/10 UPnP/1.1 MiniDLNA/1.0\r\n\r\n", ip, puerto)
+
+	for {
+		_, _ = conn.Write([]byte(payload))
+		time.Sleep(5 * time.Second)
 	}
-
-	err = client.Play(0, "1")
-	if err != nil {
-		log.Fatalf("❌ Error al iniciar la reproducción: %v", err)
-	}
-
-	fmt.Println("▶️ ¡Reproduciendo! Presiona ENTER para salir y detener el streaming.")
-	fmt.Scanln()
-	client.Stop(0)
 }
 
 func obtenerIPLocal() string {
-	interfaces, err := net.Interfaces()
+	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return "127.0.0.1"
 	}
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() {
-				continue
-			}
-			ip = ip.To4()
-			if ip != nil {
-				return ip.String()
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
 			}
 		}
 	}
 	return "127.0.0.1"
+}
+
+func pausarYSalir() {
+	fmt.Println("\nPresiona ENTER para salir.")
+	var b [1]byte
+	_, _ = os.Stdin.Read(b[:])
 }
