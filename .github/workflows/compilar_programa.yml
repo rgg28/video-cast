@@ -19,27 +19,33 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
+        cache: false # Desactiva por completo el caché corrupto de GitHub
 
-    - name: 3. Inicializar Entorno Local Seguro
+    - name: 3. Instalar Compilador de Iconos
       run: |
-        go mod init litedlna
         go install ://github.com
 
-    - name: 4. Incrustar Icono de Reproductor Nativo
+    - name: 4. Crear e Inyectar Icono de Reproductor Nativo
       run: |
+        # Descarga el icono del reproductor de video
         wget -q https://githubusercontent.com -O reproductor.ico
+        
+        # Generar manifiesto visual moderno de Windows
         echo '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><dependency><dependentAssembly></dependentAssembly></dependency></assembly>' > main.manifest
+        
+        # Vincular el icono directamente sin tocar módulos de Go
         /home/runner/go/bin/rsrc -manifest main.manifest -ico reproductor.ico -o main.syso
 
-    - name: 5. Compilar Ejecutable de Windows (GUI)
+    - name: 5. Compilar Ejecutable Puro (Cero Dependencias Externas)
       env:
         GOOS: windows
         GOARCH: amd64
+        GO111MODULE: "off" # Fuerza a Go a pasar olímpicamente de configuraciones de red o go.mod
       run: |
         mkdir -p dist
         go build -ldflags="-s -w -H=windowsgui" -o dist/mini_dlna_player.exe main.go
 
-    - name: 6. Subir .exe como Artefacto
+    - name: 6. Subir .exe como Artefacto Directo
       uses: actions/upload-artifact@v4
       with:
         name: mini_dlna_player_windows
@@ -48,7 +54,7 @@ jobs:
     - name: 7. Publicar en Releases
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "v1.4.0"
+        tag_name: "v1.5.0"
         name: "Lite DLNA Player"
-        body: "Ejecutable compilado de forma limpia con interfaz de Windows nativa e icono de reproductor."
+        body: "Ejecutable nativo con selector de carpetas e icono integrado de reproductor."
         files: dist/mini_dlna_player.exe
