@@ -130,14 +130,20 @@ func main() {
 func seleccionarVideoVentana() string {
 	var ofn OPENFILENAMEW
 	ofn.StructSize = uint32(unsafe.Sizeof(ofn))
+	
+	// Filtro de texto nativo convertido a arreglo UTF-16
 	filtroTexto, _ := syscall.UTF16FromString("Archivos de Video (*.mp4;*.mkv;*.avi)\x00*.mp4;*.mkv;*.avi\x00")
-	ofn.Filter = &filtroTexto
+	ofn.Filter = &filtroTexto[0] // Corregido: apunta al primer elemento
+	
 	bufferArchivo := make([]uint16, 1024)
-	ofn.File = &bufferArchivo
+	ofn.File = &bufferArchivo[0] // Corregido: apunta al primer elemento
 	ofn.MaxFile = uint32(len(bufferArchivo))
+	
 	tituloTexto, _ := syscall.UTF16FromString("Elige el video desde el cual deseas empezar a reproducir")
-	ofn.Title = &tituloTexto
+	ofn.Title = &tituloTexto[0] // Corregido: apunta al primer elemento
+	
 	ofn.Flags = 0x00001000 | 0x00000004
+	
 	ret, _, _ := procGetOpenFileName.Call(uintptr(unsafe.Pointer(&ofn)))
 	if ret == 0 {
 		return ""
