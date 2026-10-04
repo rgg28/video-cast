@@ -1,83 +1,139 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	"://github.com"
+	. "://github.com/declarative"
+)
+
+var (
+	carpetaSeleccionada string
+	ipLocal             string
+	puerto              = "8080"
+	servidorIniciado    = false
 )
 
 func main() {
-	reader := bufio.NewReader(os.Stdin)
+	ipLocal = obtenerIPLocal()
 
-	fmt.Print("📁 Introduce la ruta de la carpeta con videos (ej: C:\\Videos): ")
-	carpeta, _ := reader.ReadString('\n')
-	carpeta = strings.TrimSpace(carpeta)
+	var mainWindow *walk.MainWindow
+	var lbVideos *walk.ListBox
+	var btnTransmitir *walk.PushButton
+	var lblCarpeta *walk.Label
+	videoModel := walk.NewSimpleListModel()
 
-	if _, err := os.Stat(carpeta); os.IsNotExist(err) {
-		fmt.Printf("❌ La carpeta no existe: %s\n", carpeta)
-		pausarYSalir()
-		return
+	err := MainWindow{
+		AssignTo: &mainWindow,
+		Title:    "Mini Transmisor DLNA Lite",
+		MinSize:  Size{Width: 450, Height: 350},
+		Layout:   VBox{Margins: Margins{Top: 10, Bottom: 10, Left: 10, Right: 10}},
+		Children: []Widget{
+			// Sección 1: Selección de carpeta
+			Composite{
+				Layout: HBox{MarginsZero: true},
+				Children: []Widget{
+					PushButton{
+						Text: "📁 Seleccionar Carpeta",
+						OnClicked: func() {
+							dlg := new(walk.FileDialog)
+							dlg.Title = "Selecciona la carpeta con tus videos"
+							if ok, _ := dlg.ShowBrowseFolder(mainWindow); ok {
+								carpetaSeleccionada = dlg.FilePath
+								lblCarpeta.SetText(filepath.Base(carpetaSeleccionada))
+								
+								// Actualizar lista de videos
+								videos := listarVideos(carpetaSeleccionada)
+								_ = videoModel.SetPublishingActions(false)
+								videoModel.SetItems(videos)
+								
+								// Iniciar servidor HTTP si no está corriendo
+								if !servidorIniciado && len(videos) > 0 {
+									iniciarServidorWeb(carpetaSeleccionada)
+								}
+								btnTransmitir.SetEnabled(len(videos) > 0)
+							}
+						},
+					},
+					Label{
+						AssignTo:  &lblCarpeta,
+						Text:      "Ninguna carpeta seleccionada",
+						TextColor: walk.RGB(100, 100, 100),
+					},
+				},
+			},
+			VSpacer{Size: 10},
+			// Sección 2: Lista de videos
+			Label{Text: "Selecciona un video para transmitir a tu TV:"},
+			ListBox{
+				AssignTo: &lbVideos,
+				Model:    videoModel,
+			},
+			VSpacer{Size: 10},
+			// Sección 3: Botón de acción
+			PushButton{
+				AssignTo: &btnTransmitir,
+				Text:     "📺 Transmitir por DLNA a la TV",
+				Enabled:  false,
+				OnClicked: func() {
+					idx := lbVideos.CurrentIndex()
+					if idx < 0 {
+						walk.MsgBox(mainWindow, "Atención", "Por favor, selecciona un video de la lista.", walk.MsgBoxIconWarning)
+						return
+					}
+					
+					items := videoModel.Items()
+					videoSeleccionado := items[idx].(string)
+					urlVideo := fmt.Sprintf("http://%s:%s/%s", ipLocal, puerto, videoSeleccionado)
+
+					// Lanzar protocolo de descubrimiento SSDP de fondo
+					go lanzarAnuncioSSDP(ipLocal, puerto, videoSeleccionado)
+
+					mensaje := fmt.Sprintf("🚀 Transmitiendo servicio DLNA...\n\n🔗 Enlace: %s\n\nVe a tu Smart TV y abre el 'Reproductor Multimedia' o la sección de 'Dispositivos de Red' para ver el video.", urlVideo)
+					walk.MsgBox(mainWindow, "Streaming Activo", mensaje, walk.MsgBoxIconInformation)
+				},
+			},
+		},
+	}.Create()
+
+	if err != nil {
+		panic(err)
 	}
 
-	ipLocal := obtenerIPLocal()
-	puerto := "8080"
-	urlBase := fmt.Sprintf("http://%s:%s/", ipLocal, puerto)
+	mainWindow.Run()
+}
 
-	// Servidor de archivos nativo
-	fs := http.FileServer(http.Dir(carpeta))
-	http.Handle("/", fs)
-	go func() {
-		_ = http.ListenAndServe(":"+puerto, nil)
-	}()
-
-	archivos, _ := os.ReadDir(carpeta)
+func listarVideos(ruta string) []string {
 	var videos []string
-	fmt.Println("\n🎬 Videos encontrados:")
+	archivos, err := os.ReadDir(ruta)
+	if err != nil {
+		return videos
+	}
 	for _, archivo := range archivos {
 		ext := strings.ToLower(filepath.Ext(archivo.Name()))
 		if ext == ".mp4" || ext == ".mkv" || ext == ".avi" {
 			videos = append(videos, archivo.Name())
-			fmt.Printf("[%d] %s\n", len(videos)-1, archivo.Name())
 		}
 	}
-
-	if len(videos) == 0 {
-		fmt.Println("❌ No se encontraron videos compatibles (.mp4, .mkv, .avi) en la carpeta.")
-		pausarYSalir()
-		return
-	}
-
-	fmt.Print("\n🔢 Selecciona el número del video a transmitir: ")
-	opcionStr, _ := reader.ReadString('\n')
-	opcionStr = strings.TrimSpace(opcionStr)
-	opcion, err := strconv.Atoi(opcionStr)
-
-	if err != nil || opcion < 0 || opcion >= len(videos) {
-		fmt.Println("❌ Selección inválida.")
-		pausarYSalir()
-		return
-	}
-	videoSeleccionado := videos[opcion]
-	urlVideo := urlBase + videoSeleccionado
-
-	// Anuncio UPnP/DLNA nativo mediante SSDP (Simple Service Discovery Protocol)
-	fmt.Println("\n🚀 Transmitiendo servicio DLNA en la red local...")
-	fmt.Printf("🔗 Enlace del stream: %s\n", urlVideo)
-	fmt.Println("📺 Abre la sección 'Dispositivos de Red' o 'Reproductor Multimedia' en tu TV.")
-	
-	go lanzarAnuncioSSDP(ipLocal, puerto)
-
-	fmt.Println("\n▶️ Servidor activo. Presiona ENTER para cerrar el streaming.")
-	_, _ = reader.ReadString('\n')
+	return videos
 }
 
-func lanzarAnuncioSSDP(ip, puerto string) {
+func iniciarServidorWeb(ruta string) {
+	fs := http.FileServer(http.Dir(ruta))
+	http.Handle("/", fs)
+	go func() {
+		_ = http.ListenAndServe(":"+puerto, nil)
+	}()
+	servidorIniciado = true
+}
+
+func lanzarAnuncioSSDP(ip, puerto, video string) {
 	addr, _ := net.ResolveUDPAddr("udp", "239.255.255.250:1900")
 	conn, _ := net.DialUDP("udp", nil, addr)
 	defer conn.Close()
@@ -88,13 +144,13 @@ func lanzarAnuncioSSDP(ip, puerto string) {
 			"NT: upnp:rootdevice\r\n"+
 			"NTS: ssdp:alive\r\n"+
 			"USN: uuid:lite-dlna-media-server::upnp:rootdevice\r\n"+
-			"LOCATION: http://%s:%s/description.xml\r\n"+
+			"LOCATION: http://%s:%s/\r\n"+
 			"CACHE-CONTROL: max-age=1800\r\n"+
 			"SERVER: Windows/10 UPnP/1.1 MiniDLNA/1.0\r\n\r\n", ip, puerto)
 
 	for {
 		_, _ = conn.Write([]byte(payload))
-		time.Sleep(5 * time.Second)
+		time.Sleep(4 * time.Second)
 	}
 }
 
@@ -111,10 +167,4 @@ func obtenerIPLocal() string {
 		}
 	}
 	return "127.0.0.1"
-}
-
-func pausarYSalir() {
-	fmt.Println("\nPresiona ENTER para salir.")
-	var b [1]byte
-	_, _ = os.Stdin.Read(b[:])
 }
