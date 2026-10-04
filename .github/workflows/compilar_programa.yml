@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest # Servidor Windows oficial
+    runs-on: windows-latest
 
     steps:
     - name: 1. Descargar Código del Repositorio
@@ -15,19 +15,15 @@ jobs:
 
     - name: 2. Crear Recurso con tu icono.ico local
       run: |
-        # Escribimos el archivo de recursos apuntando directamente a tu icono.ico de la raíz
         Set-Content -Path "resource.rc" -Value "MAINICON ICON ""icono.ico"""
-        
-        # Compila el icono en un archivo de sistema real que Windows entiende nativamente
         windres resource.rc -O coff -o resource.res
       shell: powershell
 
-    - name: 3. Compilar en C++ Nativo (Portable sin dependencias)
+    - name: 3. Compilar en C++ 100% Estático y Portable
       run: |
         mkdir dist
-        # Compilamos usando g++ e inyectamos el icono (.res) directo en la estructura del ejecutable
-        g++ -O3 -s -mwindows main.cpp resource.res -o dist/mini_dlna_player.exe -lws2_32 -lcomdlg32
-        # El flag -mwindows elimina la consola negra de fondo por completo
+        # Agregamos los flags -static para meter las DLL dentro del propio .exe
+        g++ -O3 -s -mwindows -static -static-libgcc -static-libstdc++ main.cpp resource.res -o dist/mini_dlna_player.exe -lws2_32 -lcomdlg32
       shell: powershell
 
     - name: 4. Guardar Ejecutable como Artefacto
@@ -39,7 +35,7 @@ jobs:
     - name: 5. Publicar en Releases de GitHub
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "v3.0.${{ github.run_number }}"
-        name: "Lite DLNA Player Portable v3.0.${{ github.run_number }}"
-        body: "Programa ejecutable común portable creado en C++. Interfaz nativa de Windows con tu icono.ico integrado."
+        tag_name: "v3.1.${{ github.run_number }}"
+        name: "Lite DLNA Player Portable v3.1.${{ github.run_number }}"
+        body: "Programa ejecutable común portable creado en C++. Interfaz nativa de Windows con tu icono.ico y DLLs integradas."
         files: dist/mini_dlna_player.exe
