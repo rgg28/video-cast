@@ -21,7 +21,6 @@ var (
 	procCoInitialize = syscall.NewLazyDLL("ole32.dll").NewProc("CoInitialize")
 )
 
-// Estructura necesaria para abrir el selector de carpetas de Windows
 type BROWSEINFO struct {
 	HwndOwner      uintptr
 	PidlRoot       uintptr
@@ -34,17 +33,14 @@ type BROWSEINFO struct {
 }
 
 func main() {
-	_ = syscall.Setenv("FYNE_RENDERER", "software")
-	_ , _, _ = procCoInitialize.Call(0)
+	_, _, _ = procCoInitialize.Call(0)
 
-	// 1. Mostrar selector de carpeta nativo de Windows
 	carpeta := seleccionarCarpetaVentana("Selecciona la carpeta que contiene tus videos:")
 	if carpeta == "" {
 		mostrarMensaje("Cancelado", "No se seleccionó ninguna carpeta. El programa se cerrará.")
 		return
 	}
 
-	// 2. Escanear videos en la carpeta
 	archivos, err := os.ReadDir(carpeta)
 	if err != nil {
 		mostrarMensaje("Error", "No se pudo leer la carpeta seleccionada.")
@@ -52,12 +48,10 @@ func main() {
 	}
 
 	var videos []string
-	var listaTexto strings.Builder
 	for _, archivo := range archivos {
 		ext := strings.ToLower(filepath.Ext(archivo.Name()))
 		if ext == ".mp4" || ext == ".mkv" || ext == ".avi" {
 			videos = append(videos, archivo.Name())
-			listaTexto.WriteString("- " + archivo.Name() + "\n")
 		}
 	}
 
@@ -66,25 +60,22 @@ func main() {
 		return
 	}
 
-	// 3. Confirmar transmisión del primer video encontrado (Formato compacto sin ventanas complejas)
 	videoSeleccionado := videos[0]
 	ipLocal := obtenerIPLocal()
 	puerto := "8080"
 	urlVideo := fmt.Sprintf("http://%s:%s/%s", ipLocal, puerto, videoSeleccionado)
 
-	pregunta := fmt.Sprintf("Se detectaron %d videos.\n\n¿Deseas iniciar la transmisión de:\n%s?\n\nAl confirmar, búscala en tu Smart TV.", len(videos), videoSeleccionado)
+	pregunta := fmt.Sprintf("Se detectaron %d videos.\n\n¿Deseas iniciar la transmisión de:\n%s?\n\nAl confirmar, búscarlo en tu Smart TV.", len(videos), videoSeleccionado)
 	if !mostrarConfirmacion("Mini Transmisor DLNA", pregunta) {
 		return
 	}
 
-	// 4. Iniciar Servidor Web local
 	fs := http.FileServer(http.Dir(carpeta))
 	http.Handle("/", fs)
 	go func() {
 		_ = http.ListenAndServe(":"+puerto, nil)
 	}()
 
-	// 5. Lanzar protocolo de descubrimiento UPnP/SSDP de fondo
 	go lanzarAnuncioSSDP(ipLocal, puerto)
 
 	mostrarMensaje("Streaming Activo", fmt.Sprintf("🚀 Transmitiendo con éxito.\n\nURL: %s\n\nMantén esta ventana abierta. Presiona OK cuando desees finalizar.", urlVideo))
@@ -94,15 +85,15 @@ func seleccionarCarpetaVentana(titulo string) string {
 	titlePtr, _ := syscall.UTF16PtrFromString(titulo)
 	var bi BROWSEINFO
 	bi.LpszTitle = uintptr(unsafe.Pointer(titlePtr))
-	bi.UlFlags = 0x00000001 // BIF_RETURNONLYFSDIRS
+	bi.UlFlags = 0x00000001
 
 	pidl, _, _ := procSHBrowseFor.Call(uintptr(unsafe.Pointer(&bi)))
 	if pidl == 0 {
 		return ""
 	}
 
-	var path [32768]uint16
-	ret, _, _ := procSHGetPath.Call(pidl, uintptr(unsafe.Pointer(&path[0])))
+	var path [260]uint16
+	ret, _, _ := procSHGetPath.Call(pidl, uintptr(unsafe.Pointer(&path)))
 	if ret == 0 {
 		return ""
 	}
@@ -113,13 +104,13 @@ func seleccionarCarpetaVentana(titulo string) string {
 func mostrarMensaje(titulo, contenido string) {
 	tPtr, _ := syscall.UTF16PtrFromString(titulo)
 	cPtr, _ := syscall.UTF16PtrFromString(contenido)
-	_, _, _ = procMessageBoxW.Call(0, uintptr(unsafe.Pointer(cPtr)), uintptr(unsafe.Pointer(tPtr)), 0x00000000) // MB_OK
+	_, _, _ = procMessageBoxW.Call(0, uintptr(unsafe.Pointer(cPtr)), uintptr(unsafe.Pointer(tPtr)), 0x00000000)
 }
 
 func mostrarConfirmacion(titulo, contenido string) bool {
 	tPtr, _ := syscall.UTF16PtrFromString(titulo)
 	cPtr, _ := syscall.UTF16PtrFromString(contenido)
-	ret, _, _ := procMessageBoxW.Call(0, uintptr(unsafe.Pointer(cPtr)), uintptr(unsafe.Pointer(tPtr)), 0x00000001) // MB_OKCANCEL
+	ret, _, _ = procMessageBoxW.Call(0, uintptr(unsafe.Pointer(cPtr)), uintptr(unsafe.Pointer(tPtr)), 0x00000001)
 	return ret == 1
 }
 
