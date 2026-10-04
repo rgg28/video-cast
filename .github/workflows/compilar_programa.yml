@@ -1,0 +1,54 @@
+name: Compilar Lite DLNA (.exe)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: 1. Descargar Codigo
+      uses: actions/checkout@v4
+
+    - name: 2. Configurar Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: 3. Inicializar Entorno Local Seguro
+      run: |
+        go mod init litedlna
+        go install ://github.com
+
+    - name: 4. Incrustar Icono de Reproductor Nativo
+      run: |
+        wget -q https://githubusercontent.com -O reproductor.ico
+        echo '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><dependency><dependentAssembly></dependentAssembly></dependency></assembly>' > main.manifest
+        /home/runner/go/bin/rsrc -manifest main.manifest -ico reproductor.ico -o main.syso
+
+    - name: 5. Compilar Ejecutable de Windows (GUI)
+      env:
+        GOOS: windows
+        GOARCH: amd64
+      run: |
+        mkdir -p dist
+        go build -ldflags="-s -w -H=windowsgui" -o dist/mini_dlna_player.exe main.go
+
+    - name: 6. Subir .exe como Artefacto
+      uses: actions/upload-artifact@v4
+      with:
+        name: mini_dlna_player_windows
+        path: dist/mini_dlna_player.exe
+
+    - name: 7. Publicar en Releases
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v1.4.0"
+        name: "Lite DLNA Player"
+        body: "Ejecutable compilado de forma limpia con interfaz de Windows nativa e icono de reproductor."
+        files: dist/mini_dlna_player.exe
