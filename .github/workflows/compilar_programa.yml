@@ -7,54 +7,58 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest # Usamos Windows nativo para usar PowerShell
+    runs-on: windows-latest # Máquina virtual nativa de Windows
 
     steps:
-    - name: 1. Descargar Codigo e Imagen del Repositorio
+    - name: 1. Descargar Archivos Locales
       uses: actions/checkout@v4
 
-    - name: 2. Configurar Go
+    - name: 2. Configurar Entorno de Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false # Evita arrastrar cualquier error viejo
+        cache: false # Limpieza estricta de compilaciones anteriores
 
-    - name: 3. Convertir tu icono.PNG a formato ejecutable nativo (.ico)
+    - name: 3. Incrustar Icono mediante Recurso Nativo de Windows
       run: |
-        # Usamos la API gráfica de Windows integrada en PowerShell para convertir tu PNG local sin descargar nada
+        # 1. Convertir tu icono.PNG local a formato de sistema (.ico)
         Add-Type -AssemblyName System.Drawing
         $png = [System.Drawing.Bitmap]::FromFile("icono.PNG")
         $hIcon = $png.GetHicon()
         $ico = [System.Drawing.Icon]::FromHandle($hIcon)
-        
-        $stream = [System.IO.File]::Create("reproductor.ico")
+        $stream = [System.IO.File]::Create("app.ico")
         $ico.Save($stream)
         $stream.Close()
-        
         $png.Dispose()
         $ico.Dispose()
+
+        # 2. Crear un archivo de recursos (.rc) nativo de Microsoft
+        Set-Content -Path "app.rc" -Value "id ICON app.ico"
+
+        # 3. Compilar el recurso usando el compilador de recursos nativo del sistema
+        windres -i app.rc -o app_windows_amd64.syso
       shell: powershell
 
-    - name: 4. Compilar Ejecutable Puro con tu Icono (Cero descargas externas)
+    - name: 4. Compilar Ejecutable de Windows (GUI)
       env:
         GOOS: windows
         GOARCH: amd64
-        GO111MODULE: "off" # Ignora por completo peticiones de red o módulos de Go
+        GO111MODULE: "off" # No descarga ni busca módulos externos de internet
       run: |
         mkdir dist
-        # Compila el código asignándole la interfaz gráfica nativa y tu icono convertido
+        # Go detectará automáticamente el archivo .syso nativo y fusionará el icono dentro del ejecutable
         go build -ldflags="-s -w -H=windowsgui" -o dist/mini_dlna_player.exe main.go
 
-    - name: 5. Subir .exe como Artefacto Directo
+    - name: 5. Guardar Ejecutable Terminado como Artefacto
       uses: actions/upload-artifact@v4
       with:
-        name: mini_dlna_player_windows
+        name: mini_dlna_player_con_icono
         path: dist/mini_dlna_player.exe
 
-    - name: 6. Publicar en Releases
+    - name: 6. Publicar Release Dinámico
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "v1.7.0"
-        name: "Lite DLNA Player"
-        body: "Ejecutable compilado de forma 100% local en los servidores usando tu icono personalizado."
+        tag_name: "v1.${{ github.run_number }}.0" # Genera un número de versión único en cada ejecución
+        name: "Lite DLNA Player v1.${{ github.run_number }}.0"
+        body: "Compilación limpia en Windows con tu archivo icono.PNG integrado."
         files: dist/mini_dlna_player.exe
