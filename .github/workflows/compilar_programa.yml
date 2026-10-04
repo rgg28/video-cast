@@ -3,7 +3,7 @@ name: Compilar Lite DLNA (.exe)
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Permite compilar manualmente con un botón
+  workflow_dispatch:
 
 jobs:
   build:
