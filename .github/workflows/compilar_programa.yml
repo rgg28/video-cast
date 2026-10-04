@@ -22,7 +22,7 @@ jobs:
 
     - name: 3. Preparar Entorno de Dependencias
       run: |
-        go mod init ://github.com
+        go mod init dlna_player
         go get ://github.com
         go mod tidy
 
@@ -37,9 +37,7 @@ jobs:
     - name: 5. Crear Release y Subir .exe
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v1.0.\${{ github.run_number }}
-        name: Lite DLNA Player v1.0.\${{ github.run_number }}
-        body: |
-          ### ¡Programa Lite Compilado con Éxito! 🚀
-          Descarga el archivo `.exe` inferior para ejecutarlo en Windows sin instalaciones intermedias.
+        tag_name: "v1.0.${{ github.run_number }}"
+        name: "Lite DLNA Player v1.0.${{ github.run_number }}"
+        body: "Descarga el archivo ejecutable .exe adjunto."
         files: dist/mini_dlna_player.exe
