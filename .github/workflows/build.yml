@@ -42,6 +42,7 @@ jobs:
               <OutputType>WinExe</OutputType>
               <TargetFramework>net8.0-windows</TargetFramework>
               <UseWPF>true</UseWPF>
+
               <Nullable>enable</Nullable>
               <ImplicitUsings>enable</ImplicitUsings>
 
@@ -55,15 +56,21 @@ jobs:
 
               <SelfContained>true</SelfContained>
               <PublishSingleFile>false</PublishSingleFile>
-              <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+              <DebugType>None</DebugType>
+              <DebugSymbols>false</DebugSymbols>
             </PropertyGroup>
 
             <ItemGroup>
-              <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />
+              <PackageReference
+                Include="Microsoft.Web.WebView2"
+                Version="1.0.3537.50" />
             </ItemGroup>
 
           </Project>
-          '@ | Set-Content -Path (Join-Path $root "DLNABrowser.csproj") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "DLNABrowser.csproj") `
+            -Encoding UTF8
 
           @'
           <?xml version="1.0" encoding="utf-8"?>
@@ -85,14 +92,18 @@ jobs:
               </security>
             </trustInfo>
 
-            <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+            <compatibility
+                xmlns="urn:schemas-microsoft-com:compatibility.v1">
               <application>
-                <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+                <supportedOS
+                    Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
               </application>
             </compatibility>
 
           </ApplicationManifest>
-          '@ | Set-Content -Path (Join-Path $root "app.manifest") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "app.manifest") `
+            -Encoding UTF8
 
           @'
           <Application
@@ -104,7 +115,9 @@ jobs:
             </Application.Resources>
 
           </Application>
-          '@ | Set-Content -Path (Join-Path $root "App.xaml") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "App.xaml") `
+            -Encoding UTF8
 
           @'
           using System.Windows;
@@ -114,7 +127,9 @@ jobs:
           public partial class App : Application
           {
           }
-          '@ | Set-Content -Path (Join-Path $root "App.xaml.cs") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "App.xaml.cs") `
+            -Encoding UTF8
 
           @'
           namespace DLNABrowser;
@@ -122,7 +137,9 @@ jobs:
           public sealed class DlnaDevice
           {
               public string FriendlyName { get; set; } = "";
+
               public string Location { get; set; } = "";
+
               public string ControlUrl { get; set; } = "";
 
               public override string ToString()
@@ -130,19 +147,29 @@ jobs:
                   return FriendlyName;
               }
           }
-          '@ | Set-Content -Path (Join-Path $root "DlnaDevice.cs") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "DlnaDevice.cs") `
+            -Encoding UTF8
 
           @'
+          using System;
+          using System.Collections.Generic;
+          using System.Linq;
           using System.Net;
+          using System.Net.Http;
           using System.Net.Sockets;
           using System.Text;
+          using System.Threading;
+          using System.Threading.Tasks;
           using System.Xml.Linq;
 
           namespace DLNABrowser;
 
           public static class SsdpDiscovery
           {
-              private const string MulticastAddress = "239.255.255.250";
+              private const string MulticastAddress =
+                  "239.255.255.250";
+
               private const int MulticastPort = 1900;
 
               private const string SearchTarget =
@@ -151,9 +178,12 @@ jobs:
               public static async Task<List<DlnaDevice>> DiscoverAsync(
                   int timeoutMilliseconds = 4000)
               {
-                  var devices = new List<DlnaDevice>();
+                  var devices =
+                      new List<DlnaDevice>();
 
-                  using var client = new UdpClient();
+                  using var client =
+                      new UdpClient();
+
                   client.EnableBroadcast = true;
 
                   var request =
@@ -163,7 +193,8 @@ jobs:
                       "MX: 2\r\n" +
                       $"ST: {SearchTarget}\r\n\r\n";
 
-                  var data = Encoding.UTF8.GetBytes(request);
+                  var data =
+                      Encoding.UTF8.GetBytes(request);
 
                   await client.SendAsync(
                       data,
@@ -172,38 +203,50 @@ jobs:
                           IPAddress.Parse(MulticastAddress),
                           MulticastPort));
 
-                  var locations = new HashSet<string>(
-                      StringComparer.OrdinalIgnoreCase);
+                  var locations =
+                      new HashSet<string>(
+                          StringComparer.OrdinalIgnoreCase);
 
                   var deadline =
-                      DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+                      DateTime.UtcNow.AddMilliseconds(
+                          timeoutMilliseconds);
 
                   while (DateTime.UtcNow < deadline)
                   {
                       var remaining =
                           (int)Math.Max(
                               1,
-                              (deadline - DateTime.UtcNow).TotalMilliseconds);
+                              (deadline - DateTime.UtcNow)
+                                  .TotalMilliseconds);
 
-                      var receiveTask = client.ReceiveAsync();
-                      var delayTask = Task.Delay(remaining);
+                      var receiveTask =
+                          client.ReceiveAsync();
+
+                      var delayTask =
+                          Task.Delay(remaining);
 
                       var completed =
-                          await Task.WhenAny(receiveTask, delayTask);
+                          await Task.WhenAny(
+                              receiveTask,
+                              delayTask);
 
                       if (completed != receiveTask)
                           break;
 
-                      var result = await receiveTask;
+                      var result =
+                          await receiveTask;
 
                       var response =
-                          Encoding.UTF8.GetString(result.Buffer);
+                          Encoding.UTF8.GetString(
+                              result.Buffer);
 
-                      foreach (var line in response.Split(
-                          new[] { "\r\n", "\n" },
-                          StringSplitOptions.RemoveEmptyEntries))
+                      foreach (
+                          var line in response.Split(
+                              new[] { "\r\n", "\n" },
+                              StringSplitOptions.RemoveEmptyEntries))
                       {
-                          var separator = line.IndexOf(':');
+                          var separator =
+                              line.IndexOf(':');
 
                           if (separator <= 0)
                               continue;
@@ -228,7 +271,8 @@ jobs:
                       try
                       {
                           var device =
-                              await LoadDeviceAsync(location);
+                              await LoadDeviceAsync(
+                                  location);
 
                           if (device != null &&
                               !devices.Any(x =>
@@ -250,13 +294,16 @@ jobs:
               private static async Task<DlnaDevice?> LoadDeviceAsync(
                   string location)
               {
-                  using var http = new HttpClient
-                  {
-                      Timeout = TimeSpan.FromSeconds(5)
-                  };
+                  using var http =
+                      new HttpClient
+                      {
+                          Timeout =
+                              TimeSpan.FromSeconds(5)
+                      };
 
                   var xml =
-                      await http.GetStringAsync(location);
+                      await http.GetStringAsync(
+                          location);
 
                   var document =
                       XDocument.Parse(xml);
@@ -264,12 +311,10 @@ jobs:
                   XNamespace deviceNs =
                       "urn:schemas-upnp-org:device-1-0";
 
-                  XNamespace serviceNs =
-                      "urn:schemas-upnp-org:service-1-0";
-
                   var deviceElement =
                       document
-                          .Descendants(deviceNs + "device")
+                          .Descendants(
+                              deviceNs + "device")
                           .FirstOrDefault();
 
                   if (deviceElement == null)
@@ -277,52 +322,76 @@ jobs:
 
                   var friendlyName =
                       deviceElement
-                          .Element(deviceNs + "friendlyName")
+                          .Element(
+                              deviceNs + "friendlyName")
                           ?.Value
                           ?.Trim();
 
-                  if (string.IsNullOrWhiteSpace(friendlyName))
+                  if (string.IsNullOrWhiteSpace(
+                          friendlyName))
+                  {
                       friendlyName = "DLNA TV";
+                  }
 
                   var service =
                       deviceElement
-                          .Descendants(deviceNs + "service")
-                          .FirstOrDefault(x =>
-                              string.Equals(
-                                  x.Element(deviceNs + "serviceType")?.Value,
-                                  "urn:schemas-upnp-org:service:AVTransport:1",
-                                  StringComparison.OrdinalIgnoreCase));
+                          .Descendants(
+                              deviceNs + "service")
+                          .FirstOrDefault(
+                              x =>
+                                  string.Equals(
+                                      x.Element(
+                                          deviceNs +
+                                          "serviceType")
+                                      ?.Value,
+                                      "urn:schemas-upnp-org:service:AVTransport:1",
+                                      StringComparison.OrdinalIgnoreCase));
 
                   if (service == null)
                       return null;
 
                   var controlUrl =
                       service
-                          .Element(deviceNs + "controlURL")
+                          .Element(
+                              deviceNs + "controlURL")
                           ?.Value;
 
-                  if (string.IsNullOrWhiteSpace(controlUrl))
+                  if (string.IsNullOrWhiteSpace(
+                          controlUrl))
+                  {
                       return null;
+                  }
 
                   var baseUri =
                       new Uri(location);
 
                   var absoluteControlUrl =
-                      new Uri(baseUri, controlUrl);
+                      new Uri(
+                          baseUri,
+                          controlUrl);
 
                   return new DlnaDevice
                   {
-                      FriendlyName = friendlyName,
-                      Location = location,
-                      ControlUrl = absoluteControlUrl.ToString()
+                      FriendlyName =
+                          friendlyName,
+
+                      Location =
+                          location,
+
+                      ControlUrl =
+                          absoluteControlUrl.ToString()
                   };
               }
           }
-          '@ | Set-Content -Path (Join-Path $root "SsdpDiscovery.cs") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "SsdpDiscovery.cs") `
+            -Encoding UTF8
 
           @'
+          using System;
           using System.Net.Http;
           using System.Text;
+          using System.Threading.Tasks;
 
           namespace DLNABrowser;
 
@@ -331,7 +400,7 @@ jobs:
               public static async Task SetMediaAsync(
                   DlnaDevice device,
                   string mediaUrl,
-                  string contentType = "video/mp4")
+                  string contentType)
               {
                   var metadata =
                       CreateMetadata(
@@ -403,10 +472,12 @@ jobs:
                       </s:Envelope>
                       """;
 
-                  using var http = new HttpClient
-                  {
-                      Timeout = TimeSpan.FromSeconds(15)
-                  };
+                  using var http =
+                      new HttpClient
+                      {
+                          Timeout =
+                              TimeSpan.FromSeconds(15)
+                      };
 
                   using var request =
                       new HttpRequestMessage(
@@ -424,12 +495,14 @@ jobs:
                           "text/xml");
 
                   using var response =
-                      await http.SendAsync(request);
+                      await http.SendAsync(
+                          request);
 
                   if (!response.IsSuccessStatusCode)
                   {
                       var error =
-                          await response.Content.ReadAsStringAsync();
+                          await response.Content
+                              .ReadAsStringAsync();
 
                       throw new InvalidOperationException(
                           $"DLNA SOAP error {(int)response.StatusCode}: {error}");
@@ -458,22 +531,32 @@ jobs:
               private static string Escape(
                   string value)
               {
-                  return System.Security.SecurityElement
-                      .Escape(value) ?? "";
+                  return
+                      System.Security.SecurityElement
+                          .Escape(value) ?? "";
               }
           }
-          '@ | Set-Content -Path (Join-Path $root "DlnaRenderer.cs") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "DlnaRenderer.cs") `
+            -Encoding UTF8
 
           @'
+          using System;
+          using System.IO;
           using System.Net;
           using System.Net.Http;
+          using System.Net.Sockets;
+          using System.Threading;
+          using System.Threading.Tasks;
 
           namespace DLNABrowser;
 
           public sealed class LocalMediaServer : IDisposable
           {
               private readonly HttpListener listener;
-              private readonly CancellationTokenSource cts = new();
+
+              private readonly CancellationTokenSource cts =
+                  new();
 
               private readonly string sourceUrl;
 
@@ -484,11 +567,14 @@ jobs:
               public LocalMediaServer(
                   string sourceUrl)
               {
-                  this.sourceUrl = sourceUrl;
+                  this.sourceUrl =
+                      sourceUrl;
 
-                  Port = FindFreePort();
+                  Port =
+                      FindFreePort();
 
-                  listener = new HttpListener();
+                  listener =
+                      new HttpListener();
 
                   listener.Prefixes.Add(
                       $"http://127.0.0.1:{Port}/");
@@ -530,68 +616,96 @@ jobs:
               {
                   try
                   {
-                      if (!context.Request.Url!
-                              .AbsolutePath
-                              .Equals(
-                                  "/media",
-                                  StringComparison.OrdinalIgnoreCase))
+                      var path =
+                          context.Request.Url
+                              ?.AbsolutePath;
+
+                      if (!string.Equals(
+                              path,
+                              "/media",
+                              StringComparison.OrdinalIgnoreCase))
                       {
-                          context.Response.StatusCode = 404;
+                          context.Response.StatusCode =
+                              404;
+
                           context.Response.Close();
+
                           return;
                       }
 
-                      using var http = new HttpClient();
+                      using var http =
+                          new HttpClient();
 
                       using var request =
                           new HttpRequestMessage(
                               HttpMethod.Get,
                               sourceUrl);
 
+                      var range =
+                          context.Request.Headers["Range"];
+
                       if (!string.IsNullOrWhiteSpace(
-                              context.Request.Headers["Range"]))
+                              range))
                       {
-                          request.Headers.TryAddWithoutValidation(
-                              "Range",
-                              context.Request.Headers["Range"]);
+                          request.Headers
+                              .TryAddWithoutValidation(
+                                  "Range",
+                                  range);
                       }
 
                       using var response =
                           await http.SendAsync(
                               request,
-                              HttpCompletionOption.ResponseHeadersRead,
+                              HttpCompletionOption
+                                  .ResponseHeadersRead,
                               cts.Token);
 
                       context.Response.StatusCode =
                           (int)response.StatusCode;
 
-                      if (response.Content.Headers.ContentType != null)
+                      var contentType =
+                          response.Content
+                              .Headers
+                              .ContentType;
+
+                      if (contentType != null)
                       {
                           context.Response.ContentType =
-                              response.Content.Headers.ContentType
-                                  .ToString();
+                              contentType.ToString();
                       }
 
-                      if (response.Content.Headers.ContentLength.HasValue)
+                      var contentLength =
+                          response.Content
+                              .Headers
+                              .ContentLength;
+
+                      if (contentLength.HasValue)
                       {
-                          context.Response.ContentLength64 =
-                              response.Content.Headers.ContentLength.Value;
+                          context.Response
+                              .ContentLength64 =
+                              contentLength.Value;
                       }
 
-                      if (response.Content.Headers.ContentRange != null)
+                      var contentRange =
+                          response.Content
+                              .Headers
+                              .ContentRange;
+
+                      if (contentRange != null)
                       {
-                          context.Response.AddHeader(
-                              "Content-Range",
-                              response.Content.Headers.ContentRange.ToString());
+                          context.Response.Headers[
+                              "Content-Range"] =
+                              contentRange.ToString();
                       }
 
-                      context.Response.AddHeader(
-                          "Accept-Ranges",
-                          "bytes");
+                      context.Response.Headers[
+                          "Accept-Ranges"] =
+                          "bytes";
 
                       await using var stream =
-                          await response.Content.ReadAsStreamAsync(
-                              cts.Token);
+                          await response.Content
+                              .ReadAsStreamAsync(
+                                  cts.Token);
 
                       await stream.CopyToAsync(
                           context.Response.OutputStream,
@@ -601,7 +715,8 @@ jobs:
                   {
                       try
                       {
-                          context.Response.StatusCode = 500;
+                          context.Response.StatusCode =
+                              500;
                       }
                       catch
                       {
@@ -621,32 +736,37 @@ jobs:
 
               private static int FindFreePort()
               {
-                  var listener =
+                  var tcp =
                       new TcpListener(
                           IPAddress.Loopback,
                           0);
 
-                  listener.Start();
+                  tcp.Start();
 
                   var port =
-                      ((IPEndPoint)listener.LocalEndpoint)
-                          .Port;
+                      ((IPEndPoint)
+                          tcp.LocalEndpoint).Port;
 
-                  listener.Stop();
+                  tcp.Stop();
 
                   return port;
               }
 
               private static string GetLocalIPv4()
               {
-                  foreach (
-                      var address in
+                  var host =
                       Dns.GetHostEntry(
-                          Dns.GetHostName()).AddressList)
+                          Dns.GetHostName());
+
+                  foreach (
+                      var address
+                      in host.AddressList)
                   {
-                      if (address.AddressFamily ==
+                      if (
+                          address.AddressFamily ==
                           AddressFamily.InterNetwork &&
-                          !IPAddress.IsLoopback(address))
+                          !IPAddress.IsLoopback(
+                              address))
                       {
                           return address.ToString();
                       }
@@ -668,22 +788,28 @@ jobs:
                   }
 
                   listener.Close();
+
                   cts.Dispose();
               }
           }
-          '@ | Set-Content -Path (Join-Path $root "LocalMediaServer.cs") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "LocalMediaServer.cs") `
+            -Encoding UTF8
 
           @'
           using Microsoft.Web.WebView2.Core;
+          using System;
+          using System.Text.Json;
+          using System.Threading.Tasks;
           using System.Windows;
-          using System.Windows.Controls;
           using System.Windows.Input;
 
           namespace DLNABrowser;
 
           public partial class MainWindow : Window
           {
-              private readonly List<DlnaDevice> devices = new();
+              private readonly List<DlnaDevice> devices =
+                  new();
 
               private LocalMediaServer? mediaServer;
 
@@ -704,13 +830,16 @@ jobs:
               {
                   try
                   {
-                      await Browser.EnsureCoreWebView2Async();
+                      await Browser
+                          .EnsureCoreWebView2Async();
 
                       Browser.CoreWebView2.Settings
-                          .AreDefaultContextMenusEnabled = true;
+                          .AreDefaultContextMenusEnabled =
+                          true;
 
                       Browser.CoreWebView2.Settings
-                          .AreDevToolsEnabled = true;
+                          .AreDevToolsEnabled =
+                          true;
 
                       Browser.CoreWebView2.Navigate(
                           "https://www.google.com");
@@ -718,7 +847,8 @@ jobs:
                   catch (Exception ex)
                   {
                       StatusText.Text =
-                          "WebView2 error: " + ex.Message;
+                          "WebView2 error: " +
+                          ex.Message;
                   }
 
                   await DiscoverTvsAsync();
@@ -743,7 +873,8 @@ jobs:
 
                       foreach (var device in devices)
                       {
-                          TvCombo.Items.Add(device);
+                          TvCombo.Items.Add(
+                              device);
                       }
 
                       if (TvCombo.Items.Count > 0)
@@ -762,7 +893,8 @@ jobs:
                   catch (Exception ex)
                   {
                       StatusText.Text =
-                          "Error DLNA: " + ex.Message;
+                          "Error DLNA: " +
+                          ex.Message;
                   }
               }
 
@@ -787,9 +919,11 @@ jobs:
                           "https://" + url;
                   }
 
-                  AddressBar.Text = url;
+                  AddressBar.Text =
+                      url;
 
-                  Browser.CoreWebView2.Navigate(url);
+                  Browser.CoreWebView2.Navigate(
+                      url);
               }
 
               private void AddressBar_KeyDown(
@@ -808,7 +942,8 @@ jobs:
                   object sender,
                   RoutedEventArgs e)
               {
-                  if (TvCombo.SelectedItem is not DlnaDevice tv)
+                  if (TvCombo.SelectedItem
+                      is not DlnaDevice tv)
                   {
                       MessageBox.Show(
                           "Selecciona una TV DLNA primero.",
@@ -824,8 +959,9 @@ jobs:
                       StatusText.Text =
                           "Detectando video...";
 
-                      var result =
-                          await Browser.CoreWebView2
+                      var scriptResult =
+                          await Browser
+                              .CoreWebView2
                               .ExecuteScriptAsync(
                                   """
                                   (() => {
@@ -842,10 +978,12 @@ jobs:
                                   """);
 
                       var videoUrl =
-                          System.Text.Json.JsonSerializer
-                              .Deserialize<string>(result);
+                          JsonSerializer
+                              .Deserialize<string>(
+                                  scriptResult);
 
-                      if (string.IsNullOrWhiteSpace(videoUrl))
+                      if (string.IsNullOrWhiteSpace(
+                              videoUrl))
                       {
                           MessageBox.Show(
                               "No se encontró un elemento <video> en esta página.",
@@ -861,7 +999,7 @@ jobs:
                               StringComparison.OrdinalIgnoreCase))
                       {
                           MessageBox.Show(
-                              "Este video usa una URL blob interna. Esta versión necesita una URL HTTP/HTTPS accesible por la TV.",
+                              "El video usa una URL blob interna. Se necesita una URL HTTP/HTTPS accesible por la TV.",
                               "DLNA",
                               MessageBoxButton.OK,
                               MessageBoxImage.Information);
@@ -876,7 +1014,9 @@ jobs:
                               ".m3u8",
                               StringComparison.OrdinalIgnoreCase))
                       {
-                          finalUrl = videoUrl;
+                          finalUrl =
+                              videoUrl;
+
                           contentType =
                               "application/vnd.apple.mpegurl";
                       }
@@ -896,16 +1036,19 @@ jobs:
                       }
 
                       StatusText.Text =
-                          "Enviando video a " +
-                          tv.FriendlyName + "...";
+                          "Enviando a " +
+                          tv.FriendlyName +
+                          "...";
 
-                      await DlnaRenderer.SetMediaAsync(
-                          tv,
-                          finalUrl,
-                          contentType);
+                      await DlnaRenderer
+                          .SetMediaAsync(
+                              tv,
+                              finalUrl,
+                              contentType);
 
-                      await DlnaRenderer.PlayAsync(
-                          tv);
+                      await DlnaRenderer
+                          .PlayAsync(
+                              tv);
 
                       StatusText.Text =
                           "Video enviado correctamente.";
@@ -913,7 +1056,8 @@ jobs:
                   catch (Exception ex)
                   {
                       StatusText.Text =
-                          "Error: " + ex.Message;
+                          "Error: " +
+                          ex.Message;
 
                       MessageBox.Show(
                           ex.ToString(),
@@ -934,12 +1078,16 @@ jobs:
                   object sender,
                   RoutedEventArgs e)
               {
-                  if (TvCombo.SelectedItem is not DlnaDevice tv)
+                  if (TvCombo.SelectedItem
+                      is not DlnaDevice tv)
+                  {
                       return;
+                  }
 
                   try
                   {
-                      await DlnaRenderer.StopAsync(tv);
+                      await DlnaRenderer
+                          .StopAsync(tv);
 
                       StatusText.Text =
                           "Reproducción detenida.";
@@ -947,7 +1095,8 @@ jobs:
                   catch (Exception ex)
                   {
                       StatusText.Text =
-                          "Error: " + ex.Message;
+                          "Error: " +
+                          ex.Message;
                   }
               }
 
@@ -958,7 +1107,9 @@ jobs:
                   mediaServer?.Dispose();
               }
           }
-          '@ | Set-Content -Path (Join-Path $root "MainWindow.xaml.cs") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "MainWindow.xaml.cs") `
+            -Encoding UTF8
 
           @'
           <Window
@@ -983,8 +1134,7 @@ jobs:
 
               <Grid
                   Grid.Row="0"
-                  Background="#1b1f2a"
-                  Margin="0">
+                  Background="#1b1f2a">
 
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto"/>
@@ -1019,7 +1169,7 @@ jobs:
 
                 <Button
                     Grid.Column="3"
-                    Content="📺 TV"
+                    Content="TV"
                     Width="90"
                     Margin="4"
                     Click="SendButton_Click"/>
@@ -1057,7 +1207,7 @@ jobs:
 
                 <Button
                     Grid.Column="2"
-                    Content="🔍 TVs"
+                    Content="TVs"
                     Height="34"
                     Margin="8,0"
                     Padding="12,0"
@@ -1072,24 +1222,28 @@ jobs:
 
                 <Button
                     Grid.Column="4"
-                    Content="■ Stop"
+                    Content="Stop"
                     Height="34"
                     Margin="6"
                     Padding="12,0"
                     Click="StopButton_Click"/>
+
               </Grid>
             </Grid>
           </Window>
-          '@ | Set-Content -Path (Join-Path $root "MainWindow.xaml") -Encoding UTF8
+          '@ | Set-Content `
+            -Path (Join-Path $root "MainWindow.xaml") `
+            -Encoding UTF8
 
       - name: Restore
         shell: pwsh
         working-directory: src/DLNABrowser
         run: |
           $ErrorActionPreference = "Stop"
+
           dotnet restore DLNABrowser.csproj
 
-      - name: Build and publish
+      - name: Publish
         shell: pwsh
         working-directory: src/DLNABrowser
         run: |
@@ -1104,9 +1258,23 @@ jobs:
             -p:DebugType=None `
             -p:DebugSymbols=false
 
-          if (-not (Test-Path "publish\DLNABrowser.exe")) {
+          if ($LASTEXITCODE -ne 0) {
+              throw "dotnet publish falló."
+          }
+
+          $exe =
+              Join-Path $PWD "publish\DLNABrowser.exe"
+
+          if (-not (Test-Path $exe)) {
               throw "DLNABrowser.exe no fue generado."
           }
+
+          Write-Host ""
+          Write-Host "=============================================="
+          Write-Host "EXECUTABLE GENERADO"
+          Write-Host "=============================================="
+          Get-Item $exe |
+              Select-Object FullName, Length
 
       - name: Create ZIP
         shell: pwsh
@@ -1114,10 +1282,12 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $publish =
-              Join-Path $env:GITHUB_WORKSPACE "src\DLNABrowser\publish"
+              Join-Path $env:GITHUB_WORKSPACE `
+                  "src\DLNABrowser\publish"
 
           $zip =
-              Join-Path $env:GITHUB_WORKSPACE "DLNABrowser-win-x64.zip"
+              Join-Path $env:GITHUB_WORKSPACE `
+                  "DLNABrowser-win-x64.zip"
 
           if (Test-Path $zip) {
               Remove-Item $zip -Force
@@ -1132,10 +1302,13 @@ jobs:
               throw "No se pudo crear el ZIP."
           }
 
+          Write-Host ""
           Write-Host "=============================================="
-          Write-Host "BUILD COMPLETADO"
+          Write-Host "ZIP GENERADO"
           Write-Host "=============================================="
-          Get-Item $zip | Select-Object FullName, Length
+
+          Get-Item $zip |
+              Select-Object FullName, Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
