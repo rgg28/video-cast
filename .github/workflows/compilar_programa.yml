@@ -1,0 +1,53 @@
+name: Compilar Lite DLNA (.exe)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: 1. Descargar Archivos del Repositorio
+      uses: actions/checkout@v4
+
+    - name: 2. Configurar Entorno de Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+        cache: false
+
+    - name: 3. Estructurar Recurso del Icono de Forma Nativa
+      run: |
+        # Creamos el archivo descriptor apuntando a tu icono local de la raíz
+        Set-Content -Path "app.rc" -Value "1 ICON ""icono.ico"""
+        
+        # Compilamos el recurso usando las herramientas GCC nativas que Windows ya tiene mapeadas en su PATH
+        windres -i app.rc -o main_windows_amd64.syso
+      shell: powershell
+
+    - name: 4. Compilar Ejecutable de Windows (GUI)
+      env:
+        GOOS: windows
+        GOARCH: amd64
+        GO111MODULE: "off"
+      run: |
+        mkdir dist
+        # Go detectará automáticamente el archivo .syso generado en el paso anterior y lo fusionará dentro del ejecutable
+        go build -ldflags="-s -w -H=windowsgui" -o dist/mini_dlna_player.exe main.go
+
+    - name: 5. Guardar Ejecutable como Artefacto
+      uses: actions/upload-artifact@v4
+      with:
+        name: mini_dlna_player_ordenado
+        path: dist/mini_dlna_player.exe
+
+    - name: 6. Publicar en Releases
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v2.0.${{ github.run_number }}"
+        name: "Lite DLNA Player v2.0.${{ github.run_number }}"
+        body: "Compilación corregida: Solucionados los punteros de memoria e inyección de recursos del icono de sistema."
+        files: dist/mini_dlna_player.exe
