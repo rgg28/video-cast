@@ -65,7 +65,7 @@ func main() {
 	puerto := "8080"
 	urlVideo := fmt.Sprintf("http://%s:%s/%s", ipLocal, puerto, videoSeleccionado)
 
-	pregunta := fmt.Sprintf("Se detectaron %d videos.\n\n¿Deseas iniciar la transmisión de:\n%s?\n\nAl confirmar, búscarlo en tu Smart TV.", len(videos), videoSeleccionado)
+	pregunta := fmt.Sprintf("Se detectaron %d videos.\n\n¿Deseas iniciar la transmisión de:\n%s?\n\nAl confirmar, búscalo en tu Smart TV.", len(videos), videoSeleccionado)
 	if !mostrarConfirmacion("Mini Transmisor DLNA", pregunta) {
 		return
 	}
@@ -110,7 +110,7 @@ func mostrarMensaje(titulo, contenido string) {
 func mostrarConfirmacion(titulo, contenido string) bool {
 	tPtr, _ := syscall.UTF16PtrFromString(titulo)
 	cPtr, _ := syscall.UTF16PtrFromString(contenido)
-	ret, _, _ = procMessageBoxW.Call(0, uintptr(unsafe.Pointer(cPtr)), uintptr(unsafe.Pointer(tPtr)), 0x00000001)
+	ret, _, _ := procMessageBoxW.Call(0, uintptr(unsafe.Pointer(cPtr)), uintptr(unsafe.Pointer(tPtr)), 0x00000001)
 	return ret == 1
 }
 
