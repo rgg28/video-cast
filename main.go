@@ -50,7 +50,6 @@ type OPENFILENAMEW struct {
 func main() {
 	_, _, _ = procCoInitialize.Call(0)
 
-	// 1. Seleccionar el video por el que deseas empezar
 	rutaPrimerVideo := seleccionarVideoVentana()
 	if rutaPrimerVideo == "" {
 		mostrarMensaje("Cancelado", "No se seleccionó ningún video inicial.")
@@ -60,7 +59,6 @@ func main() {
 	carpeta := filepath.Dir(rutaPrimerVideo)
 	videoInicialNombre := filepath.Base(rutaPrimerVideo)
 
-	// 2. Leer todos los videos de la carpeta y ordenarlos alfabéticamente
 	archivos, err := os.ReadDir(carpeta)
 	if err != nil {
 		mostrarMensaje("Error", "No se pudo acceder a la carpeta de los videos.")
@@ -74,9 +72,8 @@ func main() {
 			todosLosVideos = append(todosLosVideos, archivo.Name())
 		}
 	}
-	sort.Strings(todosLosVideos) // Orden alfabético estricto
+	sort.Strings(todosLosVideos)
 
-	// 3. Filtrar la lista para empezar desde el elegido en adelante
 	indiceInicial := -1
 	for i, v := range todosLosVideos {
 		if v == videoInicialNombre {
@@ -92,7 +89,6 @@ func main() {
 
 	listaReproduccion := todosLosVideos[indiceInicial:]
 
-	// 4. Configurar Servidor de Red Local
 	ipLocal := obtenerIPLocal()
 	puerto := "8080"
 	urlBase := fmt.Sprintf("http://%s:%s/", ipLocal, puerto)
@@ -103,23 +99,17 @@ func main() {
 		_ = http.ListenAndServe(":"+puerto, nil)
 	}()
 
-	// 5. Confirmación e Inicio de Transmisión DLNA continua
 	pregunta := fmt.Sprintf("¡Todo listo!\n\nSe reproducirán %d videos en orden alfabético comenzando por:\n➡ %s\n\n¿Deseas iniciar la transmisión?", len(listaReproduccion), videoInicialNombre)
 	if !mostrarConfirmacion("Mini Transmisor DLNA", pregunta) {
 		return
 	}
 
-	// Transmisión asíncrona de la tanda de videos mediante anuncios SSDP secuenciales
 	go func() {
 		for _, video := range listaReproduccion {
 			videoEscapado := strings.ReplaceAll(video, " ", "%20")
 			urlCompleta := urlBase + videoEscapado
-			
-			// Anunciamos este video específico de forma constante durante 15 segundos para que la TV lo capture y cargue
 			finAnuncio := time.Now().Add(15 * time.Second)
 			go lanzarAnuncioSSDP(ipLocal, puerto, urlCompleta, finAnuncio)
-			
-			// Esperamos un tiempo prudente antes de preparar el siguiente de la lista secuencial
 			time.Sleep(20 * time.Second) 
 		}
 	}()
@@ -131,16 +121,15 @@ func seleccionarVideoVentana() string {
 	var ofn OPENFILENAMEW
 	ofn.StructSize = uint32(unsafe.Sizeof(ofn))
 	
-	// Filtro de texto nativo convertido a arreglo UTF-16
-	filtroTexto, _ := syscall.UTF16FromString("Archivos de Video (*.mp4;*.mkv;*.avi)\x00*.mp4;*.mkv;*.avi\x00")
-	ofn.Filter = &filtroTexto[0] // Corregido: apunta al primer elemento
+	filtroTexto, _ := syscall.UTF16FromString("Archivos de Video\x00*.mp4;*.mkv;*.avi\x00Todos los Archivos\x00*.*\x00\x00")
+	ofn.Filter = &filtroTexto[0]
 	
 	bufferArchivo := make([]uint16, 1024)
-	ofn.File = &bufferArchivo[0] // Corregido: apunta al primer elemento
+	ofn.File = &bufferArchivo[0]
 	ofn.MaxFile = uint32(len(bufferArchivo))
 	
-	tituloTexto, _ := syscall.UTF16FromString("Elige el video desde el cual deseas empezar a reproducir")
-	ofn.Title = &tituloTexto[0] // Corregido: apunta al primer elemento
+	tituloTexto, _ := syscall.UTF16FromString("Elige el video inicial para tu TV")
+	ofn.Title = &tituloTexto[0]
 	
 	ofn.Flags = 0x00001000 | 0x00000004
 	
