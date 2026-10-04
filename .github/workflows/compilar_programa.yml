@@ -7,40 +7,29 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-latest # Servidor nativo de Windows para compilar el .exe
 
     steps:
-    - name: 1. Descargar Archivos Locales
+    - name: 1. Descargar Archivos del Repositorio
       uses: actions/checkout@v4
 
     - name: 2. Configurar Entorno de Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false
+        cache: false # Limpieza total de fallos anteriores
 
-    - name: 3. Generar Icono de Sistema Compatible
+    - name: 3. Preparar Archivo de Recursos de Windows
       run: |
-        # Generamos el archivo .ico desde tu PNG local de forma compatible
-        Add-Type -AssemblyName System.Drawing
-        $png = [System.Drawing.Bitmap]::FromFile("icono.PNG")
-        $hIcon = $png.GetHicon()
-        $ico = [System.Drawing.Icon]::FromHandle($hIcon)
-        $stream = [System.IO.File]::Create("app.ico")
-        $ico.Save($stream)
-        $stream.Close()
-        $png.Dispose()
-        $ico.Dispose()
-
-        # Creamos el archivo de recursos (.rc)
-        Set-Content -Path "app.rc" -Value "1 ICON ""app.ico"""
+        # Creamos el archivo de configuración usando tu "icono.ico" de la raíz
+        Set-Content -Path "app.rc" -Value "1 ICON ""icono.ico"""
         
-        # Agregamos al PATH las herramientas nativas de Microsoft Windows (Kit de desarrollo)
+        # Localizamos el compilador nativo de recursos de Microsoft que ya viene en la máquina
         $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         $installationPath = &$vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         $rcPath = Get-ChildItem -Path "$installationPath\VC\Tools\MSVC" -Recurse -Filter "rc.exe" | Select-Object -First 1 -ExpandProperty DirectoryName
         
-        # Compilamos el recurso usando la herramienta oficial de Microsoft (rc.exe) en vez de windres
+        # Generamos el archivo de recursos .res final
         & "$rcPath\rc.exe" /r /fo app.res app.rc
       shell: powershell
 
@@ -48,10 +37,10 @@ jobs:
       env:
         GOOS: windows
         GOARCH: amd64
-        GO111MODULE: "off"
+        GO111MODULE: "off" # No busca ni descarga ninguna puta librería de la red
       run: |
         mkdir dist
-        # Compilamos vinculando directamente el archivo de recursos .res oficial de Windows
+        # Compila tu main.go y le inyecta tu icono.ico de golpe
         go build -ldflags="-s -w -H=windowsgui" -o dist/mini_dlna_player.exe main.go app.res
 
     - name: 5. Guardar Ejecutable como Artefacto
@@ -60,10 +49,10 @@ jobs:
         name: mini_dlna_player_con_icono
         path: dist/mini_dlna_player.exe
 
-    - name: 6. Publicar Release
+    - name: 6. Publicar en Releases
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "v1.${{ github.run_number }}.0"
         name: "Lite DLNA Player v1.${{ github.run_number }}.0"
-        body: "Compilación nativa completada con éxito usando tu icono."
+        body: "Compilación nativa con tu archivo icono.ico incrustado correctamente."
         files: dist/mini_dlna_player.exe
