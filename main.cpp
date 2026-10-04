@@ -1,3 +1,4 @@
+#include <winsock2.h> // Primero la librería de red obligatoriamente
 #include <windows.h>
 #include <commctrl.h>
 #include <shlobj.h>
@@ -6,10 +7,9 @@
 #include <vector>
 #include <algorithm>
 #include <thread>
-#include <winsock2.h>
 
 #pragma comment(lib, "ws2_32.lib")
-#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "comdlg32.lib")
 
 std::wstring videoInicialPath = L"";
 std::wstring carpetaVideos = L"";
@@ -19,7 +19,7 @@ std::vector<std::wstring> listaVideos;
 std::string ObtenerIPLocal() {
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) return "127.0.0.1";
-    char nombreHost[255];
+    char nombreHost[256];
     if (gethostname(nombreHost, sizeof(nombreHost)) == SOCKET_ERROR) return "127.0.0.1";
     struct hostent* host = gethostbyname(nombreHost);
     if (host == nullptr) return "127.0.0.1";
@@ -30,7 +30,7 @@ std::string ObtenerIPLocal() {
     return ip;
 }
 
-// Ventana de selección de video nativa de Windows (Soluciona los fallos de apertura)
+// Ventana de selección de video nativa de Windows
 std::wstring SeleccionarVideoVentana(HWND hWnd) {
     wchar_t filename[MAX_PATH] = L"";
     OPENFILENAMEW ofn;
@@ -51,7 +51,6 @@ std::wstring SeleccionarVideoVentana(HWND hWnd) {
 
 // Servidor multimedia HTTP extremadamente ligero integrado
 void IniciarServidorMultimedia(std::wstring carpeta, std::string ip, int puerto) {
-    // Levanta sockets básicos para despachar video sin usar librerías externas de red
     SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     sockaddr_in serverService;
     serverService.sin_family = AF_INET;
@@ -116,14 +115,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     std::wstring nombreVideo = videoInicialPath.substr(found + 1);
 
     // Buscar el resto de los videos en orden alfabético
-    std::wstring búsquedaPath = carpetaVideos + L"\\*";
+    std::wstring busquedaPath = carpetaVideos + L"\\*";
     WIN32_FIND_DATAW fileData;
-    HANDLE hFind = FindFirstFileW(búsquedaPath.c_str(), &fileData);
+    HANDLE hFind = FindFirstFileW(busquedaPath.c_str(), &fileData);
 
     if (hFind != INVALID_HANDLE_VALUE) {
         do {
-            std::wstring file = fileData.c_str;
-            if (file.find(L".mp4") != std::wstring::npos || file.find(L".mkv") != std::wstring::npos) {
+            std::wstring file = fileData.cFileName; // Corregido: cFileName es la variable nativa de Windows
+            if (file.find(L".mp4") != std::wstring::npos || file.find(L".mkv") != std::wstring::npos || file.find(L".avi") != std::wstring::npos) {
                 listaVideos.push_back(file);
             }
         } while (FindNextFileW(hFind, &fileData));
