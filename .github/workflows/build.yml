@@ -1,0 +1,1966 @@
+name: Build DLNA Cast Extension
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-extension.yml"
+
+jobs:
+  build-extension:
+    runs-on: windows-latest
+
+    steps:
+
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ==========================================================
+      # CREATE EXTENSION
+      # ==========================================================
+
+      - name: Create DLNA Cast extension
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Cyan
+          Write-Host " CREATING DLNA CAST EXTENSION" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Cyan
+          Write-Host ""
+
+          $root = $env:GITHUB_WORKSPACE
+          $extension = Join-Path $root "extension"
+          $output = Join-Path $root "dist"
+
+          if (Test-Path $extension) {
+              Remove-Item $extension -Recurse -Force
+          }
+
+          if (Test-Path $output) {
+              Remove-Item $output -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $extension -Force | Out-Null
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+
+          # ======================================================
+          # GENERATE CHROME EXTENSION KEY
+          # ======================================================
+
+          Write-Host "Generating Chrome extension key..."
+
+          $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+
+          try {
+              $publicDer = $rsa.ExportSubjectPublicKeyInfo()
+              $key = [Convert]::ToBase64String($publicDer)
+          }
+          finally {
+              $rsa.Dispose()
+          }
+
+          Write-Host "Chrome extension key generated."
+
+          # ======================================================
+          # MANIFEST
+          # ======================================================
+
+          $manifest = @"
+          {
+            "manifest_version": 3,
+            "name": "DLNA Cast",
+            "version": "2.0.0",
+            "description": "Envía vídeos compatibles de Chrome a una TV DLNA.",
+            "permissions": [
+              "activeTab",
+              "scripting",
+              "nativeMessaging",
+              "webRequest"
+            ],
+            "host_permissions": [
+              "http://*/*",
+              "https://*/*"
+            ],
+            "background": {
+              "service_worker": "service-worker.js"
+            },
+            "action": {
+              "default_title": "DLNA Cast",
+              "default_popup": "popup.html"
+            },
+            "content_scripts": [
+              {
+                "matches": [
+                  "http://*/*",
+                  "https://*/*"
+                ],
+                "js": [
+                  "content.js"
+                ],
+                "all_frames": true,
+                "match_origin_as_fallback": true,
+                "run_at": "document_idle"
+              }
+            ],
+            "key": "$key"
+          }
+          "@
+
+          Set-Content `
+            -Path (Join-Path $extension "manifest.json") `
+            -Value $manifest `
+            -Encoding UTF8
+
+          # ======================================================
+          # CONTENT.JS
+          # ======================================================
+
+          $contentJs = @'
+          (() => {
+
+              function absoluteUrl(value) {
+                  if (!value) {
+                      return "";
+                  }
+
+                  try {
+                      return new URL(
+                          value,
+                          location.href
+                      ).href;
+                  }
+                  catch {
+                      return "";
+                  }
+              }
+
+              function classify(url) {
+                  if (!url) {
+                      return "unknown";
+                  }
+
+                  const value =
+                      url.toLowerCase();
+
+                  if (value.includes(".m3u8")) {
+                      return "hls";
+                  }
+
+                  if (value.includes(".mpd")) {
+                      return "dash";
+                  }
+
+                  if (
+                      value.match(
+                          /\.mp4(?:[?#]|$)/
+                      )
+                  ) {
+                      return "mp4";
+                  }
+
+                  if (
+                      value.match(
+                          /\.webm(?:[?#]|$)/
+                      )
+                  ) {
+                      return "webm";
+                  }
+
+                  return "unknown";
+              }
+
+              function addUnique(array, item) {
+                  if (!item || !item.url) {
+                      return;
+                  }
+
+                  if (
+                      array.some(
+                          x => x.url === item.url
+                      )
+                  ) {
+                      return;
+                  }
+
+                  array.push(item);
+              }
+
+              function scan() {
+
+                  const videos = [];
+                  const streams = [];
+
+                  const videoElements =
+                      Array.from(
+                          document.querySelectorAll(
+                              "video"
+                          )
+                      );
+
+                  videoElements.forEach(
+                      (video, index) => {
+
+                          let url = "";
+
+                          try {
+                              url =
+                                  video.currentSrc ||
+                                  video.src ||
+                                  "";
+                          }
+                          catch {}
+
+                          const sources =
+                              Array.from(
+                                  video.querySelectorAll(
+                                      "source"
+                                  )
+                              );
+
+                          if (!url) {
+
+                              for (
+                                  const source
+                                  of sources
+                              ) {
+
+                                  const candidate =
+                                      absoluteUrl(
+                                          source.src ||
+                                          source.getAttribute(
+                                              "src"
+                                          )
+                                      );
+
+                                  if (candidate) {
+                                      url = candidate;
+                                      break;
+                                  }
+                              }
+                          }
+
+                          const type =
+                              classify(url);
+
+                          const item = {
+                              index,
+                              url,
+                              type,
+                              paused:
+                                  !!video.paused,
+                              currentTime:
+                                  Number(
+                                      video.currentTime || 0
+                                  ),
+                              duration:
+                                  Number.isFinite(
+                                      video.duration
+                                  )
+                                      ? video.duration
+                                      : 0,
+                              width:
+                                  video.videoWidth || 0,
+                              height:
+                                  video.videoHeight || 0,
+                              poster:
+                                  video.poster || "",
+                              frameUrl:
+                                  location.href,
+                              title:
+                                  document.title ||
+                                  "Video"
+                          };
+
+                          videos.push(item);
+
+                          if (
+                              [
+                                  "hls",
+                                  "dash",
+                                  "mp4",
+                                  "webm"
+                              ].includes(type)
+                          ) {
+
+                              addUnique(
+                                  streams,
+                                  {
+                                      url,
+                                      type
+                                  }
+                              );
+                          }
+                      }
+                  );
+
+                  const elements =
+                      Array.from(
+                          document.querySelectorAll(
+                              [
+                                  "a[href]",
+                                  "source[src]",
+                                  "video[src]",
+                                  "[data-src]",
+                                  "[data-video]",
+                                  "[data-file]",
+                                  "[data-url]",
+                                  "[data-hls]",
+                                  "[data-m3u8]",
+                                  "[data-mpd]"
+                              ].join(",")
+                          )
+                      );
+
+                  for (
+                      const element
+                      of elements
+                  ) {
+
+                      const candidates = [
+                          element.href,
+                          element.src,
+                          element.dataset?.src,
+                          element.dataset?.video,
+                          element.dataset?.file,
+                          element.dataset?.url,
+                          element.dataset?.hls,
+                          element.dataset?.m3u8,
+                          element.dataset?.mpd
+                      ];
+
+                      for (
+                          const candidate
+                          of candidates
+                      ) {
+
+                          const url =
+                              absoluteUrl(
+                                  candidate
+                              );
+
+                          const type =
+                              classify(url);
+
+                          if (
+                              [
+                                  "hls",
+                                  "dash",
+                                  "mp4",
+                                  "webm"
+                              ].includes(type)
+                          ) {
+
+                              addUnique(
+                                  streams,
+                                  {
+                                      url,
+                                      type
+                                  }
+                              );
+                          }
+                      }
+                  }
+
+                  // Buscar URLs de vídeo visibles
+                  // dentro del HTML.
+
+                  const html =
+                      document
+                          .documentElement
+                          ?.outerHTML ||
+                      "";
+
+                  const regex =
+                      /https?:\/\/[^"'\\\s<>]+?\.(?:m3u8|mpd|mp4|webm)(?:\?[^"'\\\s<>]*)?/gi;
+
+                  const matches =
+                      html.match(regex) || [];
+
+                  for (
+                      const raw
+                      of matches
+                  ) {
+
+                      const url =
+                          raw.replace(
+                              /[),;]+$/,
+                              ""
+                          );
+
+                      const type =
+                          classify(url);
+
+                      if (
+                          [
+                              "hls",
+                              "dash",
+                              "mp4",
+                              "webm"
+                          ].includes(type)
+                      ) {
+
+                          addUnique(
+                              streams,
+                              {
+                                  url,
+                                  type
+                              }
+                          );
+                      }
+                  }
+
+                  return {
+                      videos,
+                      streams
+                  };
+              }
+
+              return scan();
+
+          })();
+          '@
+
+          Set-Content `
+            -Path (Join-Path $extension "content.js") `
+            -Value $contentJs `
+            -Encoding UTF8
+
+          # ======================================================
+          # SERVICE WORKER
+          # ======================================================
+
+          $serviceWorkerJs = @'
+          const HOST_NAME =
+              "com.rgg28.dlnacast";
+
+          let nativePort = null;
+
+          let requestId = 1;
+
+          const pending =
+              new Map();
+
+          const streamRequests =
+              new Map();
+
+          function ensureNativePort() {
+
+              if (nativePort) {
+                  return nativePort;
+              }
+
+              nativePort =
+                  chrome.runtime.connectNative(
+                      HOST_NAME
+                  );
+
+              nativePort.onMessage.addListener(
+                  message => {
+
+                      const id =
+                          message?.requestId;
+
+                      if (!id) {
+                          return;
+                      }
+
+                      const entry =
+                          pending.get(id);
+
+                      if (!entry) {
+                          return;
+                      }
+
+                      pending.delete(id);
+
+                      if (message.ok) {
+
+                          entry.resolve(
+                              message
+                          );
+
+                      }
+                      else {
+
+                          entry.reject(
+                              new Error(
+                                  message.error ||
+                                  "Error del helper"
+                              )
+                          );
+                      }
+                  }
+              );
+
+              nativePort.onDisconnect.addListener(
+                  () => {
+
+                      const error =
+                          chrome.runtime.lastError?.message ||
+                          "DLNA Cast Helper desconectado.";
+
+                      for (
+                          const entry
+                          of pending.values()
+                      ) {
+
+                          entry.reject(
+                              new Error(error)
+                          );
+                      }
+
+                      pending.clear();
+
+                      nativePort = null;
+                  }
+              );
+
+              return nativePort;
+          }
+
+          function nativeRequest(
+              action,
+              data = {}
+          ) {
+
+              return new Promise(
+                  (resolve, reject) => {
+
+                      const id =
+                          requestId++;
+
+                      try {
+
+                          const port =
+                              ensureNativePort();
+
+                          pending.set(
+                              id,
+                              {
+                                  resolve,
+                                  reject
+                              }
+                          );
+
+                          port.postMessage({
+                              requestId: id,
+                              action,
+                              ...data
+                          });
+
+                      }
+                      catch (error) {
+
+                          reject(error);
+                      }
+                  }
+              );
+          }
+
+          function addStream(
+              tabId,
+              url,
+              type,
+              source
+          ) {
+
+              if (!url) {
+                  return;
+              }
+
+              if (
+                  !url.startsWith("http://") &&
+                  !url.startsWith("https://")
+              ) {
+                  return;
+              }
+
+              const lower =
+                  url.toLowerCase();
+
+              let detectedType =
+                  type || "unknown";
+
+              if (
+                  lower.includes(".m3u8")
+              ) {
+
+                  detectedType = "hls";
+
+              }
+              else if (
+                  lower.includes(".mpd")
+              ) {
+
+                  detectedType = "dash";
+
+              }
+              else if (
+                  lower.match(
+                      /\.mp4(?:[?#]|$)/
+                  )
+              ) {
+
+                  detectedType = "mp4";
+
+              }
+              else if (
+                  lower.match(
+                      /\.webm(?:[?#]|$)/
+                  )
+              ) {
+
+                  detectedType = "webm";
+              }
+
+              if (
+                  ![
+                      "hls",
+                      "dash",
+                      "mp4",
+                      "webm"
+                  ].includes(detectedType)
+              ) {
+                  return;
+              }
+
+              if (
+                  !streamRequests.has(tabId)
+              ) {
+
+                  streamRequests.set(
+                      tabId,
+                      new Map()
+                  );
+              }
+
+              const map =
+                  streamRequests.get(tabId);
+
+              map.set(
+                  url,
+                  {
+                      url,
+                      type: detectedType,
+                      source:
+                          source || "network",
+                      time:
+                          Date.now()
+                  }
+              );
+
+              while (
+                  map.size > 100
+              ) {
+
+                  const first =
+                      map.keys().next().value;
+
+                  map.delete(first);
+              }
+          }
+
+          // Detectar peticiones de medios
+          // y recursos relacionados.
+
+          chrome.webRequest.onBeforeRequest.addListener(
+              details => {
+
+                  if (
+                      details.tabId < 0
+                  ) {
+                      return;
+                  }
+
+                  addStream(
+                      details.tabId,
+                      details.url,
+                      null,
+                      "network"
+                  );
+              },
+              {
+                  urls: [
+                      "http://*/*",
+                      "https://*/*"
+                  ],
+
+                  types: [
+                      "media",
+                      "xmlhttprequest",
+                      "other"
+                  ]
+              }
+          );
+
+          chrome.tabs.onRemoved.addListener(
+              tabId => {
+
+                  streamRequests.delete(
+                      tabId
+                  );
+              }
+          );
+
+          chrome.runtime.onMessage.addListener(
+              (
+                  message,
+                  sender,
+                  sendResponse
+              ) => {
+
+                  if (
+                      !message ||
+                      !message.type
+                  ) {
+                      return;
+                  }
+
+                  if (
+                      message.type ===
+                      "SCAN_TAB"
+                  ) {
+
+                      const tabId =
+                          message.tabId;
+
+                      chrome.scripting
+                          .executeScript({
+                              target: {
+                                  tabId,
+                                  allFrames: true
+                              },
+
+                              files: [
+                                  "content.js"
+                              ]
+                          })
+                          .then(results => {
+
+                              const videos = [];
+                              const seenVideos =
+                                  new Set();
+
+                              for (
+                                  const result
+                                  of results || []
+                              ) {
+
+                                  const data =
+                                      result?.result;
+
+                                  if (!data) {
+                                      continue;
+                                  }
+
+                                  for (
+                                      const video
+                                      of data.videos || []
+                                  ) {
+
+                                      const key =
+                                          `${video.url}|${video.frameUrl}|${video.index}`;
+
+                                      if (
+                                          seenVideos.has(
+                                              key
+                                          )
+                                      ) {
+                                          continue;
+                                      }
+
+                                      seenVideos.add(
+                                          key
+                                      );
+
+                                      videos.push(
+                                          video
+                                      );
+                                  }
+
+                                  for (
+                                      const stream
+                                      of data.streams || []
+                                  ) {
+
+                                      addStream(
+                                          tabId,
+                                          stream.url,
+                                          stream.type,
+                                          "dom"
+                                      );
+                                  }
+                              }
+
+                              const streams =
+                                  Array.from(
+                                      streamRequests
+                                          .get(tabId)
+                                          ?.values() ||
+                                      []
+                                  );
+
+                              sendResponse({
+                                  ok: true,
+                                  videos,
+                                  streams
+                              });
+                          })
+                          .catch(error => {
+
+                              sendResponse({
+                                  ok: false,
+                                  error:
+                                      error?.message ||
+                                      String(error)
+                              });
+                          });
+
+                      return true;
+                  }
+
+                  if (
+                      message.type ===
+                      "DISCOVER"
+                  ) {
+
+                      nativeRequest(
+                          "discover"
+                      )
+                          .then(
+                              sendResponse
+                          )
+                          .catch(error => {
+
+                              sendResponse({
+                                  ok: false,
+                                  error:
+                                      error.message
+                              });
+                          });
+
+                      return true;
+                  }
+
+                  if (
+                      message.type ===
+                      "CAST"
+                  ) {
+
+                      nativeRequest(
+                          "cast",
+                          {
+                              device:
+                                  message.device,
+
+                              url:
+                                  message.url,
+
+                              title:
+                                  message.title ||
+                                  "Video",
+
+                              pageUrl:
+                                  message.pageUrl ||
+                                  "",
+
+                              streamType:
+                                  message.streamType ||
+                                  ""
+                          }
+                      )
+                          .then(
+                              sendResponse
+                          )
+                          .catch(error => {
+
+                              sendResponse({
+                                  ok: false,
+                                  error:
+                                      error.message
+                              });
+                          });
+
+                      return true;
+                  }
+
+                  if (
+                      message.type ===
+                      "STOP"
+                  ) {
+
+                      nativeRequest(
+                          "stop",
+                          {
+                              device:
+                                  message.device
+                          }
+                      )
+                          .then(
+                              sendResponse
+                          )
+                          .catch(error => {
+
+                              sendResponse({
+                                  ok: false,
+                                  error:
+                                      error.message
+                              });
+                          });
+
+                      return true;
+                  }
+
+                  if (
+                      message.type ===
+                      "GET_STREAMS"
+                  ) {
+
+                      const streams =
+                          Array.from(
+                              streamRequests
+                                  .get(
+                                      message.tabId
+                                  )
+                                  ?.values() ||
+                              []
+                          );
+
+                      sendResponse({
+                          ok: true,
+                          streams
+                      });
+                  }
+              }
+          );
+          '@
+
+          Set-Content `
+            -Path (Join-Path $extension "service-worker.js") `
+            -Value $serviceWorkerJs `
+            -Encoding UTF8
+
+          # ======================================================
+          # POPUP HTML
+          # ======================================================
+
+          $popupHtml = @'
+          <!DOCTYPE html>
+          <html lang="es">
+
+          <head>
+
+          <meta charset="UTF-8">
+
+          <meta
+              name="viewport"
+              content="width=device-width,initial-scale=1"
+          >
+
+          <title>DLNA Cast</title>
+
+          <style>
+
+          * {
+              box-sizing: border-box;
+          }
+
+          body {
+
+              width: 380px;
+
+              margin: 0;
+
+              padding: 16px;
+
+              background: #111827;
+
+              color: #f3f4f6;
+
+              font-family:
+                  Arial,
+                  sans-serif;
+          }
+
+          h2 {
+
+              margin:
+                  0 0 14px 0;
+
+              color: #fbbf24;
+          }
+
+          button,
+          select,
+          input {
+
+              width: 100%;
+
+              padding: 10px;
+
+              margin-top: 8px;
+
+              border-radius: 6px;
+
+              border:
+                  1px solid #374151;
+
+              background: #1f2937;
+
+              color: white;
+
+              font-size: 14px;
+          }
+
+          button {
+
+              cursor: pointer;
+          }
+
+          button:hover {
+
+              background: #374151;
+          }
+
+          #status {
+
+              margin-top: 12px;
+
+              padding: 9px;
+
+              background: #1f2937;
+
+              border-radius: 6px;
+
+              font-size: 13px;
+          }
+
+          #videos {
+
+              margin-top: 12px;
+          }
+
+          .video-row {
+
+              display: flex;
+
+              gap: 8px;
+
+              align-items: center;
+
+              padding: 10px;
+
+              margin-top: 7px;
+
+              background: #1f2937;
+
+              border-radius: 6px;
+          }
+
+          .video-row > div:first-child {
+
+              flex: 1;
+
+              min-width: 0;
+          }
+
+          .video-row button {
+
+              width: 70px;
+
+              margin: 0;
+
+              flex-shrink: 0;
+          }
+
+          .video-row small {
+
+              color: #9ca3af;
+
+              word-break: break-all;
+          }
+
+          .empty {
+
+              padding: 12px;
+
+              background: #1f2937;
+
+              border-radius: 6px;
+
+              color: #9ca3af;
+
+              line-height: 1.5;
+          }
+
+          .label {
+
+              margin-top: 10px;
+
+              font-size: 12px;
+
+              color: #9ca3af;
+          }
+
+          </style>
+
+          </head>
+
+          <body>
+
+          <h2>📺 DLNA Cast</h2>
+
+          <div class="label">
+              TV DLNA
+          </div>
+
+          <select id="device">
+              <option>
+                  Buscando...
+              </option>
+          </select>
+
+          <button id="discover">
+              🔎 Buscar TV
+          </button>
+
+          <div class="label">
+              Vídeos / streams
+          </div>
+
+          <div id="videos">
+              Buscando vídeo...
+          </div>
+
+          <div class="label">
+              Fuente seleccionada
+          </div>
+
+          <div id="streamType">
+              —
+          </div>
+
+          <input
+              id="streamUrl"
+              type="text"
+              readonly
+              placeholder="Ninguna fuente seleccionada"
+          >
+
+          <button id="cast">
+              📺 Enviar a TV
+          </button>
+
+          <button id="stop">
+              ⏹ Detener
+          </button>
+
+          <div id="status">
+              Listo
+          </div>
+
+          <script src="popup.js"></script>
+
+          </body>
+
+          </html>
+          '@
+
+          Set-Content `
+            -Path (Join-Path $extension "popup.html") `
+            -Value $popupHtml `
+            -Encoding UTF8
+
+          # ======================================================
+          # POPUP JS
+          # ======================================================
+
+          $popupJs = @'
+          const $ = id =>
+              document.getElementById(id);
+
+          let currentTab = null;
+
+          function send(message) {
+              return chrome.runtime.sendMessage(
+                  message
+              );
+          }
+
+          function status(
+              text,
+              error = false
+          ) {
+
+              const element =
+                  $("status");
+
+              if (!element) {
+                  return;
+              }
+
+              element.textContent =
+                  text;
+
+              element.style.color =
+                  error
+                      ? "#ff6b6b"
+                      : "";
+          }
+
+          function typeName(type) {
+
+              switch (type) {
+
+                  case "hls":
+                      return "HLS / M3U8";
+
+                  case "dash":
+                      return "DASH / MPD";
+
+                  case "mp4":
+                      return "MP4";
+
+                  case "webm":
+                      return "WebM";
+
+                  default:
+                      return type ||
+                          "Desconocido";
+              }
+          }
+
+          function render(
+              videos,
+              streams
+          ) {
+
+              const container =
+                  $("videos");
+
+              container.innerHTML = "";
+
+              const all = [];
+
+              for (
+                  const video
+                  of videos || []
+              ) {
+
+                  if (!video.url) {
+                      continue;
+                  }
+
+                  all.push({
+                      url: video.url,
+                      type: video.type,
+                      title:
+                          video.title ||
+                          "Vídeo",
+
+                      playing:
+                          !video.paused,
+
+                      width:
+                          video.width || 0,
+
+                      height:
+                          video.height || 0
+                  });
+              }
+
+              for (
+                  const stream
+                  of streams || []
+              ) {
+
+                  all.push({
+                      url: stream.url,
+                      type: stream.type,
+                      title:
+                          "Stream detectado",
+
+                      playing: false,
+
+                      width: 0,
+
+                      height: 0
+                  });
+              }
+
+              const unique = [];
+              const seen = new Set();
+
+              for (
+                  const item
+                  of all
+              ) {
+
+                  if (!item.url) {
+                      continue;
+                  }
+
+                  if (
+                      seen.has(
+                          item.url
+                      )
+                  ) {
+                      continue;
+                  }
+
+                  seen.add(
+                      item.url
+                  );
+
+                  unique.push(
+                      item
+                  );
+              }
+
+              if (!unique.length) {
+
+                  container.innerHTML = `
+                      <div class="empty">
+                          No se encontró un vídeo
+                          compatible.<br><br>
+                          Reproduce el episodio y pulsa
+                          <b>Buscar vídeo</b> nuevamente.
+                      </div>
+                  `;
+
+                  status(
+                      "No se encontró una fuente compatible.",
+                      true
+                  );
+
+                  return;
+              }
+
+              unique.forEach(
+                  item => {
+
+                      const row =
+                          document.createElement(
+                              "div"
+                          );
+
+                      row.className =
+                          "video-row";
+
+                      const info =
+                          document.createElement(
+                              "div"
+                          );
+
+                      info.innerHTML = `
+                          <b>
+                              ${item.title}
+                          </b>
+                          <br>
+                          <small>
+                              ${typeName(
+                                  item.type
+                              )}
+                          </small>
+                          ${
+                              item.width
+                                  ? `
+                                  <br>
+                                  <small>
+                                      ${item.width}×${item.height}
+                                  </small>
+                                  `
+                                  : ""
+                          }
+                          ${
+                              item.playing
+                                  ? `
+                                  <br>
+                                  <small>
+                                      ▶ Reproduciendo
+                                  </small>
+                                  `
+                                  : ""
+                          }
+                      `;
+
+                      const button =
+                          document.createElement(
+                              "button"
+                          );
+
+                      button.textContent =
+                          "📺 Usar";
+
+                      button.onclick = () => {
+
+                          $("streamUrl")
+                              .value =
+                              item.url;
+
+                          $("streamType")
+                              .textContent =
+                              typeName(
+                                  item.type
+                              );
+
+                          status(
+                              "Fuente seleccionada."
+                          );
+                      };
+
+                      row.appendChild(
+                          info
+                      );
+
+                      row.appendChild(
+                          button
+                      );
+
+                      container.appendChild(
+                          row
+                      );
+                  }
+              );
+
+              status(
+                  `${unique.length} fuente(s) detectada(s).`
+              );
+          }
+
+          async function scan() {
+
+              try {
+
+                  status(
+                      "Buscando vídeos..."
+                  );
+
+                  const tabs =
+                      await chrome.tabs.query({
+                          active: true,
+                          currentWindow: true
+                      });
+
+                  currentTab =
+                      tabs[0];
+
+                  if (
+                      !currentTab?.id
+                  ) {
+
+                      throw new Error(
+                          "No se encontró la pestaña."
+                      );
+                  }
+
+                  const result =
+                      await send({
+                          type:
+                              "SCAN_TAB",
+
+                          tabId:
+                              currentTab.id
+                      });
+
+                  if (!result?.ok) {
+
+                      throw new Error(
+                          result?.error ||
+                          "No se pudo analizar la página."
+                      );
+                  }
+
+                  render(
+                      result.videos,
+                      result.streams
+                  );
+
+              }
+              catch (error) {
+
+                  console.error(
+                      error
+                  );
+
+                  status(
+                      error.message ||
+                      String(error),
+                      true
+                  );
+              }
+          }
+
+          async function discover() {
+
+              try {
+
+                  status(
+                      "Buscando TV..."
+                  );
+
+                  const result =
+                      await send({
+                          type:
+                              "DISCOVER"
+                      });
+
+                  if (!result?.ok) {
+
+                      throw new Error(
+                          result?.error ||
+                          "No se pudo buscar la TV."
+                      );
+                  }
+
+                  const select =
+                      $("device");
+
+                  select.innerHTML = "";
+
+                  for (
+                      const device
+                      of result.devices || []
+                  ) {
+
+                      const option =
+                          document.createElement(
+                              "option"
+                          );
+
+                      option.value =
+                          JSON.stringify(
+                              device
+                          );
+
+                      option.textContent =
+                          device.name ||
+                          device.location ||
+                          "TV DLNA";
+
+                      select.appendChild(
+                          option
+                      );
+                  }
+
+                  if (
+                      !result.devices?.length
+                  ) {
+
+                      status(
+                          "No se encontró ninguna TV DLNA.",
+                          true
+                      );
+
+                      return;
+                  }
+
+                  status(
+                      `${result.devices.length} TV(s) encontrada(s).`
+                  );
+
+              }
+              catch (error) {
+
+                  status(
+                      error.message ||
+                      String(error),
+                      true
+                  );
+              }
+          }
+
+          async function cast() {
+
+              try {
+
+                  const url =
+                      $("streamUrl")
+                          .value
+                          .trim();
+
+                  if (!url) {
+
+                      throw new Error(
+                          "Selecciona primero un vídeo."
+                      );
+                  }
+
+                  if (
+                      url.startsWith(
+                          "blob:"
+                      ) ||
+                      url.startsWith(
+                          "data:"
+                      )
+                  ) {
+
+                      throw new Error(
+                          "La fuente no puede enviarse directamente a DLNA."
+                      );
+                  }
+
+                  const selected =
+                      $("device")
+                          .selectedOptions[0];
+
+                  if (!selected) {
+
+                      throw new Error(
+                          "Selecciona una TV."
+                      );
+                  }
+
+                  const device =
+                      JSON.parse(
+                          selected.value
+                      );
+
+                  status(
+                      "Enviando a la TV..."
+                  );
+
+                  const result =
+                      await send({
+                          type:
+                              "CAST",
+
+                          device,
+
+                          url,
+
+                          title:
+                              currentTab?.title ||
+                              "Video",
+
+                          pageUrl:
+                              currentTab?.url ||
+                              "",
+
+                          streamType:
+                              $("streamType")
+                                  .textContent
+                      });
+
+                  if (!result?.ok) {
+
+                      throw new Error(
+                          result?.error ||
+                          "La TV rechazó el vídeo."
+                      );
+                  }
+
+                  status(
+                      "▶ Reproduciendo en la TV."
+                  );
+
+              }
+              catch (error) {
+
+                  status(
+                      error.message ||
+                      String(error),
+                      true
+                  );
+              }
+          }
+
+          async function stop() {
+
+              try {
+
+                  const selected =
+                      $("device")
+                          .selectedOptions[0];
+
+                  if (!selected) {
+
+                      throw new Error(
+                          "Selecciona una TV."
+                      );
+                  }
+
+                  const device =
+                      JSON.parse(
+                          selected.value
+                      );
+
+                  const result =
+                      await send({
+                          type:
+                              "STOP",
+
+                          device
+                      });
+
+                  if (!result?.ok) {
+
+                      throw new Error(
+                          result?.error ||
+                          "No se pudo detener."
+                      );
+                  }
+
+                  status(
+                      "⏹ Reproducción detenida."
+                  );
+
+              }
+              catch (error) {
+
+                  status(
+                      error.message ||
+                      String(error),
+                      true
+                  );
+              }
+          }
+
+          document.addEventListener(
+              "DOMContentLoaded",
+              () => {
+
+                  $("discover")
+                      ?.addEventListener(
+                          "click",
+                          discover
+                      );
+
+                  $("cast")
+                      ?.addEventListener(
+                          "click",
+                          cast
+                      );
+
+                  $("stop")
+                      ?.addEventListener(
+                          "click",
+                          stop
+                      );
+
+                  scan();
+
+                  discover();
+              }
+          );
+          '@
+
+          Set-Content `
+            -Path (Join-Path $extension "popup.js") `
+            -Value $popupJs `
+            -Encoding UTF8
+
+          # ======================================================
+          # COPY TO DIST
+          # ======================================================
+
+          Copy-Item `
+            -Path $extension `
+            -Destination (Join-Path $output "extension") `
+            -Recurse `
+            -Force
+
+          # ======================================================
+          # VALIDATION
+          # ======================================================
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Cyan
+          Write-Host " VALIDATING EXTENSION" -ForegroundColor Cyan
+          Write-Host "==============================================" -ForegroundColor Cyan
+
+          $requiredFiles = @(
+              "manifest.json",
+              "popup.html",
+              "popup.js",
+              "service-worker.js",
+              "content.js"
+          )
+
+          foreach ($file in $requiredFiles) {
+
+              $path =
+                  Join-Path `
+                      $extension `
+                      $file
+
+              if (-not (Test-Path $path)) {
+                  throw "Missing extension file: $file"
+              }
+
+              Write-Host "[OK] $file" -ForegroundColor Green
+          }
+
+          $manifestPath =
+              Join-Path `
+                  $extension `
+                  "manifest.json"
+
+          try {
+
+              $manifestObject =
+                  Get-Content `
+                      $manifestPath `
+                      -Raw |
+                  ConvertFrom-Json
+
+          }
+          catch {
+
+              throw `
+                  "manifest.json is not valid JSON: $($_.Exception.Message)"
+          }
+
+          if (
+              $manifestObject.manifest_version -ne 3
+          ) {
+
+              throw `
+                  "manifest_version must be 3."
+          }
+
+          if (
+              [string]::IsNullOrWhiteSpace(
+                  $manifestObject.key
+              )
+          ) {
+
+              throw `
+                  "Chrome extension key is missing."
+          }
+
+          if (
+              -not (
+                  $manifestObject.permissions `
+                  -contains "webRequest"
+              )
+          ) {
+
+              throw `
+                  "webRequest permission is missing."
+          }
+
+          if (
+              -not (
+                  Test-Path `
+                      (Join-Path `
+                          $extension `
+                          "service-worker.js")
+              )
+          ) {
+
+              throw `
+                  "service-worker.js missing."
+          }
+
+          Write-Host ""
+          Write-Host "Manifest validation: OK" -ForegroundColor Green
+
+          # ======================================================
+          # CREATE README
+          # ======================================================
+
+          $readme = @'
+          DLNA CAST - EXTENSION
+
+          1. Abrir Chrome.
+
+          2. Ir a:
+
+             chrome://extensions/
+
+          3. Activar "Modo desarrollador".
+
+          4. Pulsar "Cargar descomprimida".
+
+          5. Seleccionar la carpeta:
+
+             extension
+
+          6. Abrir AnimeYT.
+
+          7. Entrar al episodio.
+
+          8. Reproducir el vídeo.
+
+          9. Abrir DLNA Cast.
+
+          10. Pulsar "Buscar vídeo".
+
+          La extensión detecta:
+
+          - HTML5 video
+          - MP4
+          - WebM
+          - HLS / M3U8
+          - DASH / MPD
+          - fuentes dentro de iframes
+          - solicitudes de medios visibles para la extensión
+
+          Después:
+
+          - Seleccionar la fuente.
+          - Seleccionar la TV.
+          - Pulsar "Enviar a TV".
+
+          YouTube no forma parte de este proyecto.
+
+          La extensión no intenta evadir DRM.
+          '@
+
+          Set-Content `
+            -Path (Join-Path $output "README.txt") `
+            -Value $readme `
+            -Encoding UTF8
+
+          # ======================================================
+          # ZIP
+          # ======================================================
+
+          $zip =
+              Join-Path `
+                  $output `
+                  "DLNA-Cast-Extension-v2.zip"
+
+          if (Test-Path $zip) {
+              Remove-Item $zip -Force
+          }
+
+          Compress-Archive `
+              -Path `
+                  (Join-Path $output "extension") `
+              -DestinationPath $zip `
+              -CompressionLevel Optimal
+
+          Write-Host ""
+          Write-Host "==============================================" -ForegroundColor Green
+          Write-Host " BUILD SUCCESSFUL" -ForegroundColor Green
+          Write-Host "==============================================" -ForegroundColor Green
+          Write-Host ""
+
+          Write-Host "Extension:"
+          Write-Host $extension
+
+          Write-Host ""
+          Write-Host "ZIP:"
+          Write-Host $zip
+
+      # ==========================================================
+      # ARTIFACT
+      # ==========================================================
+
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DLNA-Cast-Extension-v2
+          path: |
+            dist/DLNA-Cast-Extension-v2.zip
+            dist/extension
+            dist/README.txt
+          if-no-files-found: error
