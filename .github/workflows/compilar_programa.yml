@@ -22,7 +22,7 @@ jobs:
 
     - name: 3. Preparar Entorno de Dependencias
       run: |
-        go mod init dlna_player
+        go mod init dlnaplayer
         go get ://github.com
         go mod tidy
 
@@ -31,13 +31,13 @@ jobs:
         GOOS: windows
         GOARCH: amd64
       run: |
-        mkdir -p dist
+        mkdir dist
         go build -ldflags="-s -w" -o dist/mini_dlna_player.exe main.go
 
     - name: 5. Crear Release y Subir .exe
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "v1.0.${{ github.run_number }}"
-        name: "Lite DLNA Player v1.0.${{ github.run_number }}"
+        tag_name: "v1.0.0"
+        name: "Lite DLNA Player"
         body: "Descarga el archivo ejecutable .exe adjunto."
         files: dist/mini_dlna_player.exe
