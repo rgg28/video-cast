@@ -7,32 +7,42 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest # Cambiamos a Windows nativo para no usar herramientas de Linux
+    runs-on: windows-latest # Usamos Windows nativo para usar PowerShell
 
     steps:
-    - name: 1. Descargar Codigo
+    - name: 1. Descargar Codigo e Imagen del Repositorio
       uses: actions/checkout@v4
 
     - name: 2. Configurar Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false # Desactivado por completo para borrar el historial de errores
+        cache: false # Evita arrastrar cualquier error viejo
 
-    - name: 3. Descargar Icono de Reproductor Nativamente
+    - name: 3. Convertir tu icono.PNG a formato ejecutable nativo (.ico)
       run: |
-        # Usamos PowerShell nativo de Windows para bajar el icono sin instalar nada más
-        Invoke-WebRequest -Uri "https://githubusercontent.com" -OutFile "reproductor.ico"
+        # Usamos la API gráfica de Windows integrada en PowerShell para convertir tu PNG local sin descargar nada
+        Add-Type -AssemblyName System.Drawing
+        $png = [System.Drawing.Bitmap]::FromFile("icono.PNG")
+        $hIcon = $png.GetHicon()
+        $ico = [System.Drawing.Icon]::FromHandle($hIcon)
+        
+        $stream = [System.IO.File]::Create("reproductor.ico")
+        $ico.Save($stream)
+        $stream.Close()
+        
+        $png.Dispose()
+        $ico.Dispose()
       shell: powershell
 
-    - name: 4. Compilar Ejecutable Puro (Cero Dependencias Externas)
+    - name: 4. Compilar Ejecutable Puro con tu Icono (Cero descargas externas)
       env:
         GOOS: windows
         GOARCH: amd64
-        GO111MODULE: "off" # Desactiva por completo los módulos y peticiones a internet de Go
+        GO111MODULE: "off" # Ignora por completo peticiones de red o módulos de Go
       run: |
         mkdir dist
-        # Compila directamente tu main.go usando el entorno limpio de Windows
+        # Compila el código asignándole la interfaz gráfica nativa y tu icono convertido
         go build -ldflags="-s -w -H=windowsgui" -o dist/mini_dlna_player.exe main.go
 
     - name: 5. Subir .exe como Artefacto Directo
@@ -44,7 +54,7 @@ jobs:
     - name: 6. Publicar en Releases
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "v1.6.0"
+        tag_name: "v1.7.0"
         name: "Lite DLNA Player"
-        body: "Ejecutable compilado nativamente sin dependencias."
+        body: "Ejecutable compilado de forma 100% local en los servidores usando tu icono personalizado."
         files: dist/mini_dlna_player.exe
