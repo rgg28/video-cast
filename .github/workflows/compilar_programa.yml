@@ -1,0 +1,45 @@
+name: Compilar Lite DLNA (.exe)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Permite compilar manualmente con un botón
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # Usamos Linux en la nube porque compila Go de forma ultra rápida
+    permissions:
+      contents: write
+
+    steps:
+    - name: 1. Descargar Código
+      uses: actions/checkout@v4
+
+    - name: 2. Configurar Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: 3. Descargar Librerías de Red
+      run: |
+        go mod init mini_dlna
+        go get ://github.com
+        go get ://github.com/dcps/av1
+
+    - name: 4. Compilar para Windows (.exe)
+      env:
+        GOOS: windows
+        GOARCH: amd64
+      run: |
+        go build -ldflags="-s -w" -o dist/mini_dlna_player.exe main.go
+      # -ldflags="-s -w" reduce drásticamente el tamaño del archivo .exe final
+
+    - name: 5. Crear Release y Subir el ejecutable .exe
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.\${{ github.run_number }}
+        name: Lite DLNA Player v1.0.\${{ github.run_number }}
+        body: |
+          ### ¡Programa Lite Compilado! 🚀
+          Descarga el archivo `.exe` para usarlo directamente en Windows. No requiere instalación.
+        files: dist/mini_dlna_player.exe
