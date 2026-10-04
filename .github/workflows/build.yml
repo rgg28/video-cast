@@ -6,18 +6,15 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Install .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
@@ -27,13 +24,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $root = Join-Path $env:GITHUB_WORKSPACE "src\DLNABrowser"
-
-          if (Test-Path $root) {
-              Remove-Item $root -Recurse -Force
-          }
-
-          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          Remove-Item -Recurse -Force src -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path src\DLNABrowser | Out-Null
 
           @'
           <Project Sdk="Microsoft.NET.Sdk">
@@ -52,58 +44,24 @@ jobs:
               <AssemblyName>DLNABrowser</AssemblyName>
               <RootNamespace>DLNABrowser</RootNamespace>
 
-              <ApplicationManifest>app.manifest</ApplicationManifest>
-
               <SelfContained>true</SelfContained>
               <PublishSingleFile>false</PublishSingleFile>
 
               <DebugType>None</DebugType>
               <DebugSymbols>false</DebugSymbols>
+
+              <EnableDefaultApplicationDefinition>true</EnableDefaultApplicationDefinition>
+              <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
             </PropertyGroup>
 
             <ItemGroup>
-              <PackageReference
-                Include="Microsoft.Web.WebView2"
-                Version="1.0.3537.50" />
+              <PackageReference Include="Microsoft.Web.WebView2"
+                                Version="1.0.3537.50" />
             </ItemGroup>
 
           </Project>
-          '@ | Set-Content `
-            -Path (Join-Path $root "DLNABrowser.csproj") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\DLNABrowser.csproj -Encoding UTF8
 
-          @'
-          <?xml version="1.0" encoding="utf-8"?>
-          <ApplicationManifest
-              xmlns="urn:schemas-microsoft-com:asm.v1"
-              xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
-
-            <assemblyIdentity
-                version="1.0.0.0"
-                name="DLNABrowser.app" />
-
-            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-              <security>
-                <requestedPrivileges>
-                  <requestedExecutionLevel
-                      level="asInvoker"
-                      uiAccess="false" />
-                </requestedPrivileges>
-              </security>
-            </trustInfo>
-
-            <compatibility
-                xmlns="urn:schemas-microsoft-com:compatibility.v1">
-              <application>
-                <supportedOS
-                    Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
-              </application>
-            </compatibility>
-
-          </ApplicationManifest>
-          '@ | Set-Content `
-            -Path (Join-Path $root "app.manifest") `
-            -Encoding UTF8
 
           @'
           <Application
@@ -111,13 +69,12 @@ jobs:
               xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-            <Application.Resources>
-            </Application.Resources>
+              <Application.Resources>
+              </Application.Resources>
 
           </Application>
-          '@ | Set-Content `
-            -Path (Join-Path $root "App.xaml") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\App.xaml -Encoding UTF8
+
 
           @'
           using System.Windows;
@@ -127,29 +84,206 @@ jobs:
           public partial class App : Application
           {
           }
-          '@ | Set-Content `
-            -Path (Join-Path $root "App.xaml.cs") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\App.xaml.cs -Encoding UTF8
+
 
           @'
-          namespace DLNABrowser;
+          <Window
+              x:Class="DLNABrowser.MainWindow"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2"
+              Title="DLNA Browser"
+              Width="1400"
+              Height="900"
+              MinWidth="900"
+              MinHeight="600"
+              Background="#101010"
+              WindowStartupLocation="CenterScreen">
 
-          public sealed class DlnaDevice
-          {
-              public string FriendlyName { get; set; } = "";
+              <Grid>
 
-              public string Location { get; set; } = "";
+                  <Grid.RowDefinitions>
+                      <RowDefinition Height="48"/>
+                      <RowDefinition Height="42"/>
+                      <RowDefinition Height="*"/>
+                      <RowDefinition Height="34"/>
+                  </Grid.RowDefinitions>
 
-              public string ControlUrl { get; set; } = "";
+                  <!-- Barra superior -->
+                  <Border
+                      Grid.Row="0"
+                      Background="#181818"
+                      BorderBrush="#303030"
+                      BorderThickness="0,0,0,1">
 
-              public override string ToString()
-              {
-                  return FriendlyName;
-              }
-          }
-          '@ | Set-Content `
-            -Path (Join-Path $root "DlnaDevice.cs") `
-            -Encoding UTF8
+                      <Grid Margin="8,0">
+
+                          <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="*"/>
+                              <ColumnDefinition Width="Auto"/>
+                          </Grid.ColumnDefinitions>
+
+                          <Button
+                              x:Name="BackButton"
+                              Grid.Column="0"
+                              Width="42"
+                              Margin="2"
+                              Content="←"
+                              FontSize="20"
+                              Click="BackButton_Click"/>
+
+                          <Button
+                              x:Name="ForwardButton"
+                              Grid.Column="1"
+                              Width="42"
+                              Margin="2"
+                              Content="→"
+                              FontSize="20"
+                              Click="ForwardButton_Click"/>
+
+                          <Button
+                              x:Name="ReloadButton"
+                              Grid.Column="2"
+                              Width="42"
+                              Margin="2"
+                              Content="↻"
+                              FontSize="20"
+                              Click="ReloadButton_Click"/>
+
+                          <Button
+                              x:Name="HomeButton"
+                              Grid.Column="3"
+                              Width="42"
+                              Margin="2"
+                              Content="⌂"
+                              FontSize="20"
+                              Click="HomeButton_Click"/>
+
+                          <TextBox
+                              x:Name="AddressBox"
+                              Grid.Column="4"
+                              Height="34"
+                              Margin="8,0"
+                              VerticalContentAlignment="Center"
+                              FontSize="15"
+                              Background="#242424"
+                              Foreground="White"
+                              BorderBrush="#404040"
+                              KeyDown="AddressBox_KeyDown"/>
+
+                          <Button
+                              x:Name="GoButton"
+                              Grid.Column="5"
+                              Width="65"
+                              Margin="2"
+                              Content="Ir"
+                              Click="GoButton_Click"/>
+
+                      </Grid>
+                  </Border>
+
+
+                  <!-- Barra DLNA -->
+                  <Border
+                      Grid.Row="1"
+                      Background="#202020"
+                      BorderBrush="#383838"
+                      BorderThickness="0,0,0,1">
+
+                      <Grid Margin="8,4">
+
+                          <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="220"/>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="*"/>
+                          </Grid.ColumnDefinitions>
+
+                          <TextBlock
+                              Grid.Column="0"
+                              Text="TV:"
+                              Foreground="#CCCCCC"
+                              VerticalAlignment="Center"
+                              Margin="4,0,8,0"
+                              FontWeight="Bold"/>
+
+                          <ComboBox
+                              x:Name="DeviceCombo"
+                              Grid.Column="1"
+                              Height="30"
+                              VerticalContentAlignment="Center"
+                              DisplayMemberPath="DisplayName"/>
+
+                          <Button
+                              x:Name="DiscoverButton"
+                              Grid.Column="2"
+                              Height="30"
+                              Margin="8,0,4,0"
+                              Padding="14,0"
+                              Content="🔍 Buscar TV"
+                              Click="DiscoverButton_Click"/>
+
+                          <Button
+                              x:Name="CastButton"
+                              Grid.Column="3"
+                              Height="30"
+                              Margin="4,0"
+                              Padding="14,0"
+                              Content="📺 Enviar a TV"
+                              Background="#315B9A"
+                              Foreground="White"
+                              Click="CastButton_Click"/>
+
+                          <Button
+                              x:Name="StopCastButton"
+                              Grid.Column="4"
+                              Height="30"
+                              Margin="4,0"
+                              Padding="14,0"
+                              Content="⏹ Detener TV"
+                              Click="StopCastButton_Click"/>
+
+                      </Grid>
+                  </Border>
+
+
+                  <!-- Navegador -->
+                  <Grid Grid.Row="2">
+
+                      <wv2:WebView2
+                          x:Name="Browser"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"/>
+
+                  </Grid>
+
+
+                  <!-- Estado -->
+                  <Border
+                      Grid.Row="3"
+                      Background="#181818">
+
+                      <TextBlock
+                          x:Name="StatusText"
+                          Text="Listo — el vídeo se reproduce solamente en el PC."
+                          Foreground="#AAAAAA"
+                          VerticalAlignment="Center"
+                          Margin="10,0"/>
+
+                  </Border>
+
+              </Grid>
+
+          </Window>
+          '@ | Set-Content src\DLNABrowser\MainWindow.xaml -Encoding UTF8
+
 
           @'
           using System;
@@ -165,227 +299,218 @@ jobs:
 
           namespace DLNABrowser;
 
+          public sealed class DlnaDevice
+          {
+              public string DisplayName { get; set; } = "";
+              public string Location { get; set; } = "";
+              public string ControlUrl { get; set; } = "";
+              public string ServiceType { get; set; } = "";
+
+              public override string ToString()
+              {
+                  return DisplayName;
+              }
+          }
+
+
           public static class SsdpDiscovery
           {
-              private const string MulticastAddress =
-                  "239.255.255.250";
-
-              private const int MulticastPort = 1900;
-
-              private const string SearchTarget =
-                  "urn:schemas-upnp-org:device:MediaRenderer:1";
+              private const string MulticastAddress = "239.255.255.250";
+              private const int Port = 1900;
 
               public static async Task<List<DlnaDevice>> DiscoverAsync(
-                  int timeoutMilliseconds = 4000)
+                  int timeoutMs = 3500)
               {
-                  var devices =
-                      new List<DlnaDevice>();
+                  var result = new List<DlnaDevice>();
 
-                  using var client =
-                      new UdpClient();
+                  using var udp = new UdpClient();
 
-                  client.EnableBroadcast = true;
+                  udp.Client.SetSocketOption(
+                      SocketOptionLevel.Socket,
+                      SocketOptionName.Broadcast,
+                      true);
 
-                  var request =
+                  udp.Client.ReceiveTimeout = timeoutMs;
+
+                  string request =
                       "M-SEARCH * HTTP/1.1\r\n" +
-                      $"HOST: {MulticastAddress}:{MulticastPort}\r\n" +
+                      "HOST: 239.255.255.250:1900\r\n" +
                       "MAN: \"ssdp:discover\"\r\n" +
                       "MX: 2\r\n" +
-                      $"ST: {SearchTarget}\r\n\r\n";
+                      "ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n" +
+                      "\r\n";
 
-                  var data =
-                      Encoding.UTF8.GetBytes(request);
+                  byte[] data = Encoding.ASCII.GetBytes(request);
 
-                  await client.SendAsync(
+                  await udp.SendAsync(
                       data,
                       data.Length,
-                      new IPEndPoint(
-                          IPAddress.Parse(MulticastAddress),
-                          MulticastPort));
+                      MulticastAddress,
+                      Port);
 
                   var locations =
                       new HashSet<string>(
                           StringComparer.OrdinalIgnoreCase);
 
-                  var deadline =
-                      DateTime.UtcNow.AddMilliseconds(
-                          timeoutMilliseconds);
+                  var end =
+                      DateTime.UtcNow.AddMilliseconds(timeoutMs);
 
-                  while (DateTime.UtcNow < deadline)
-                  {
-                      var remaining =
-                          (int)Math.Max(
-                              1,
-                              (deadline - DateTime.UtcNow)
-                                  .TotalMilliseconds);
-
-                      var receiveTask =
-                          client.ReceiveAsync();
-
-                      var delayTask =
-                          Task.Delay(remaining);
-
-                      var completed =
-                          await Task.WhenAny(
-                              receiveTask,
-                              delayTask);
-
-                      if (completed != receiveTask)
-                          break;
-
-                      var result =
-                          await receiveTask;
-
-                      var response =
-                          Encoding.UTF8.GetString(
-                              result.Buffer);
-
-                      foreach (
-                          var line in response.Split(
-                              new[] { "\r\n", "\n" },
-                              StringSplitOptions.RemoveEmptyEntries))
-                      {
-                          var separator =
-                              line.IndexOf(':');
-
-                          if (separator <= 0)
-                              continue;
-
-                          var name =
-                              line[..separator].Trim();
-
-                          var value =
-                              line[(separator + 1)..].Trim();
-
-                          if (name.Equals(
-                                  "LOCATION",
-                                  StringComparison.OrdinalIgnoreCase))
-                          {
-                              locations.Add(value);
-                          }
-                      }
-                  }
-
-                  foreach (var location in locations)
+                  while (DateTime.UtcNow < end)
                   {
                       try
                       {
-                          var device =
-                              await LoadDeviceAsync(
-                                  location);
+                          int remaining =
+                              Math.Max(
+                                  100,
+                                  (int)(end - DateTime.UtcNow).TotalMilliseconds);
+
+                          udp.Client.ReceiveTimeout = remaining;
+
+                          UdpReceiveResult response =
+                              await udp.ReceiveAsync();
+
+                          string text =
+                              Encoding.ASCII.GetString(
+                                  response.Buffer);
+
+                          foreach (string line in
+                                   text.Split(
+                                       new[] { "\r\n", "\n" },
+                                       StringSplitOptions.RemoveEmptyEntries))
+                          {
+                              int colon = line.IndexOf(':');
+
+                              if (colon <= 0)
+                                  continue;
+
+                              string key =
+                                  line[..colon].Trim();
+
+                              string value =
+                                  line[(colon + 1)..].Trim();
+
+                              if (key.Equals(
+                                      "LOCATION",
+                                      StringComparison.OrdinalIgnoreCase))
+                              {
+                                  if (Uri.TryCreate(
+                                          value,
+                                          UriKind.Absolute,
+                                          out _))
+                                  {
+                                      locations.Add(value);
+                                  }
+                              }
+                          }
+                      }
+                      catch (SocketException)
+                      {
+                          break;
+                      }
+                      catch (ObjectDisposedException)
+                      {
+                          break;
+                      }
+                  }
+
+                  using var http = new HttpClient
+                  {
+                      Timeout = TimeSpan.FromSeconds(5)
+                  };
+
+                  foreach (string location in locations)
+                  {
+                      try
+                      {
+                          string xml =
+                              await http.GetStringAsync(location);
+
+                          DlnaDevice? device =
+                              ParseDeviceDescription(
+                                  location,
+                                  xml);
 
                           if (device != null &&
-                              !devices.Any(x =>
+                              !result.Any(x =>
                                   x.ControlUrl.Equals(
                                       device.ControlUrl,
                                       StringComparison.OrdinalIgnoreCase)))
                           {
-                              devices.Add(device);
+                              result.Add(device);
                           }
                       }
                       catch
                       {
+                          // Un dispositivo que no responda correctamente
+                          // no debe impedir descubrir los demás.
                       }
                   }
 
-                  return devices;
+                  return result;
               }
 
-              private static async Task<DlnaDevice?> LoadDeviceAsync(
-                  string location)
+
+              private static DlnaDevice? ParseDeviceDescription(
+                  string location,
+                  string xml)
               {
-                  using var http =
-                      new HttpClient
-                      {
-                          Timeout =
-                              TimeSpan.FromSeconds(5)
-                      };
-
-                  var xml =
-                      await http.GetStringAsync(
-                          location);
-
-                  var document =
+                  XDocument doc =
                       XDocument.Parse(xml);
 
-                  XNamespace deviceNs =
+                  XNamespace ns =
                       "urn:schemas-upnp-org:device-1-0";
 
-                  var deviceElement =
-                      document
-                          .Descendants(
-                              deviceNs + "device")
-                          .FirstOrDefault();
+                  XElement? deviceElement =
+                      doc.Descendants(ns + "device").FirstOrDefault();
 
                   if (deviceElement == null)
                       return null;
 
-                  var friendlyName =
-                      deviceElement
-                          .Element(
-                              deviceNs + "friendlyName")
-                          ?.Value
-                          ?.Trim();
+                  string name =
+                      deviceElement.Element(ns + "friendlyName")?.Value
+                      ?? "DLNA TV";
 
-                  if (string.IsNullOrWhiteSpace(
-                          friendlyName))
+                  foreach (XElement service
+                           in deviceElement.Descendants(ns + "service"))
                   {
-                      friendlyName = "DLNA TV";
+                      string serviceType =
+                          service.Element(ns + "serviceType")?.Value
+                          ?? "";
+
+                      if (!serviceType.Contains(
+                              "AVTransport",
+                              StringComparison.OrdinalIgnoreCase))
+                      {
+                          continue;
+                      }
+
+                      string control =
+                          service.Element(ns + "controlURL")?.Value
+                          ?? "";
+
+                      if (string.IsNullOrWhiteSpace(control))
+                          continue;
+
+                      Uri baseUri =
+                          new Uri(location);
+
+                      Uri controlUri =
+                          new Uri(baseUri, control);
+
+                      return new DlnaDevice
+                      {
+                          DisplayName = name,
+                          Location = location,
+                          ControlUrl = controlUri.ToString(),
+                          ServiceType = serviceType
+                      };
                   }
 
-                  var service =
-                      deviceElement
-                          .Descendants(
-                              deviceNs + "service")
-                          .FirstOrDefault(
-                              x =>
-                                  string.Equals(
-                                      x.Element(
-                                          deviceNs +
-                                          "serviceType")
-                                      ?.Value,
-                                      "urn:schemas-upnp-org:service:AVTransport:1",
-                                      StringComparison.OrdinalIgnoreCase));
-
-                  if (service == null)
-                      return null;
-
-                  var controlUrl =
-                      service
-                          .Element(
-                              deviceNs + "controlURL")
-                          ?.Value;
-
-                  if (string.IsNullOrWhiteSpace(
-                          controlUrl))
-                  {
-                      return null;
-                  }
-
-                  var baseUri =
-                      new Uri(location);
-
-                  var absoluteControlUrl =
-                      new Uri(
-                          baseUri,
-                          controlUrl);
-
-                  return new DlnaDevice
-                  {
-                      FriendlyName =
-                          friendlyName,
-
-                      Location =
-                          location,
-
-                      ControlUrl =
-                          absoluteControlUrl.ToString()
-                  };
+                  return null;
               }
           }
-          '@ | Set-Content `
-            -Path (Join-Path $root "SsdpDiscovery.cs") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\SsdpDiscovery.cs -Encoding UTF8
+
 
           @'
           using System;
@@ -395,25 +520,45 @@ jobs:
 
           namespace DLNABrowser;
 
-          public static class DlnaRenderer
+          public sealed class DlnaRenderer
           {
-              public static async Task SetMediaAsync(
+              private readonly HttpClient _http = new()
+              {
+                  Timeout = TimeSpan.FromSeconds(15)
+              };
+
+              private const string AvTransport =
+                  "urn:schemas-upnp-org:service:AVTransport:1";
+
+
+              public async Task SetMediaAsync(
                   DlnaDevice device,
                   string mediaUrl,
-                  string contentType)
+                  string title)
               {
-                  var metadata =
+                  string metadata =
                       CreateMetadata(
                           mediaUrl,
-                          contentType);
+                          title);
 
-                  var body =
+                  string escapedMetadata =
+                      EscapeXml(metadata);
+
+                  string body =
                       $"""
-                      <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                        <InstanceID>0</InstanceID>
-                        <CurrentURI>{Escape(mediaUrl)}</CurrentURI>
-                        <CurrentURIMetaData>{Escape(metadata)}</CurrentURIMetaData>
-                      </u:SetAVTransportURI>
+                      <?xml version="1.0" encoding="utf-8"?>
+                      <s:Envelope
+                        s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"
+                        xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+                        <s:Body>
+                          <u:SetAVTransportURI
+                            xmlns:u="{AvTransport}">
+                            <InstanceID>0</InstanceID>
+                            <CurrentURI>{EscapeXml(mediaUrl)}</CurrentURI>
+                            <CurrentURIMetaData>{escapedMetadata}</CurrentURIMetaData>
+                          </u:SetAVTransportURI>
+                        </s:Body>
+                      </s:Envelope>
                       """;
 
                   await SendSoapAsync(
@@ -422,15 +567,23 @@ jobs:
                       body);
               }
 
-              public static async Task PlayAsync(
+
+              public async Task PlayAsync(
                   DlnaDevice device)
               {
-                  var body =
-                      """
-                      <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                        <InstanceID>0</InstanceID>
-                        <Speed>1</Speed>
-                      </u:Play>
+                  string body =
+                      $"""
+                      <?xml version="1.0" encoding="utf-8"?>
+                      <s:Envelope
+                        s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"
+                        xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+                        <s:Body>
+                          <u:Play xmlns:u="{AvTransport}">
+                            <InstanceID>0</InstanceID>
+                            <Speed>1</Speed>
+                          </u:Play>
+                        </s:Body>
+                      </s:Envelope>
                       """;
 
                   await SendSoapAsync(
@@ -439,14 +592,22 @@ jobs:
                       body);
               }
 
-              public static async Task StopAsync(
+
+              public async Task StopAsync(
                   DlnaDevice device)
               {
-                  var body =
-                      """
-                      <u:Stop xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                        <InstanceID>0</InstanceID>
-                      </u:Stop>
+                  string body =
+                      $"""
+                      <?xml version="1.0" encoding="utf-8"?>
+                      <s:Envelope
+                        s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"
+                        xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+                        <s:Body>
+                          <u:Stop xmlns:u="{AvTransport}">
+                            <InstanceID>0</InstanceID>
+                          </u:Stop>
+                        </s:Body>
+                      </s:Envelope>
                       """;
 
                   await SendSoapAsync(
@@ -455,30 +616,12 @@ jobs:
                       body);
               }
 
-              private static async Task SendSoapAsync(
+
+              private async Task SendSoapAsync(
                   DlnaDevice device,
                   string action,
                   string body)
               {
-                  var envelope =
-                      $"""
-                      <?xml version="1.0" encoding="utf-8"?>
-                      <s:Envelope
-                          s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"
-                          xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-                        <s:Body>
-                          {body}
-                        </s:Body>
-                      </s:Envelope>
-                      """;
-
-                  using var http =
-                      new HttpClient
-                      {
-                          Timeout =
-                              TimeSpan.FromSeconds(15)
-                      };
-
                   using var request =
                       new HttpRequestMessage(
                           HttpMethod.Post,
@@ -486,59 +629,69 @@ jobs:
 
                   request.Headers.Add(
                       "SOAPACTION",
-                      $"\"urn:schemas-upnp-org:service:AVTransport:1#{action}\"");
+                      $"\"{AvTransport}#{action}\"");
 
                   request.Content =
                       new StringContent(
-                          envelope,
+                          body,
                           Encoding.UTF8,
                           "text/xml");
 
-                  using var response =
-                      await http.SendAsync(
-                          request);
+                  using HttpResponseMessage response =
+                      await _http.SendAsync(request);
+
+                  string responseBody =
+                      await response.Content.ReadAsStringAsync();
 
                   if (!response.IsSuccessStatusCode)
                   {
-                      var error =
-                          await response.Content
-                              .ReadAsStringAsync();
-
-                      throw new InvalidOperationException(
-                          $"DLNA SOAP error {(int)response.StatusCode}: {error}");
+                      throw new Exception(
+                          $"La TV rechazó {action}: " +
+                          $"{(int)response.StatusCode} " +
+                          responseBody);
                   }
               }
 
+
               private static string CreateMetadata(
                   string url,
-                  string contentType)
+                  string title)
               {
+                  string safeTitle =
+                      EscapeXml(title);
+
+                  string safeUrl =
+                      EscapeXml(url);
+
                   return
                       $"""
                       <DIDL-Lite
-                          xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
-                          xmlns:dc="http://purl.org/dc/elements/1.1/"
-                          xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
-                        <item id="1" parentID="-1" restricted="1">
-                          <dc:title>Video</dc:title>
+                        xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
+                        xmlns:dc="http://purl.org/dc/elements/1.1/"
+                        xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+                        <item id="1" parentID="0" restricted="1">
+                          <dc:title>{safeTitle}</dc:title>
                           <upnp:class>object.item.videoItem</upnp:class>
-                          <res protocolInfo="http-get:*:{Escape(contentType)}:*">{Escape(url)}</res>
+                          <res protocolInfo="http-get:*:video/mp4:*">{safeUrl}</res>
                         </item>
                       </DIDL-Lite>
                       """;
               }
 
-              private static string Escape(
+
+              private static string EscapeXml(
                   string value)
               {
-                  return
-                      System.Security.SecurityElement
-                          .Escape(value) ?? "";
+                  return value
+                      .Replace("&", "&amp;")
+                      .Replace("<", "&lt;")
+                      .Replace(">", "&gt;")
+                      .Replace("\"", "&quot;")
+                      .Replace("'", "&apos;");
               }
           }
-          '@ | Set-Content `
-            -Path (Join-Path $root "DlnaRenderer.cs") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\DlnaRenderer.cs -Encoding UTF8
+
 
           @'
           using System;
@@ -546,6 +699,7 @@ jobs:
           using System.Net;
           using System.Net.Http;
           using System.Net.Sockets;
+          using System.Text;
           using System.Threading;
           using System.Threading.Tasks;
 
@@ -553,220 +707,293 @@ jobs:
 
           public sealed class LocalMediaServer : IDisposable
           {
-              private readonly HttpListener listener;
+              private readonly HttpClient _http = new()
+              {
+                  Timeout = Timeout.InfiniteTimeSpan
+              };
 
-              private readonly CancellationTokenSource cts =
-                  new();
+              private TcpListener? _listener;
+              private CancellationTokenSource? _cts;
 
-              private readonly string sourceUrl;
+              public int Port { get; private set; }
 
-              public int Port { get; }
+              public string LocalAddress { get; private set; } = "";
 
-              public string PublicUrl { get; }
 
-              public LocalMediaServer(
+              public async Task<string> StartAsync(
                   string sourceUrl)
               {
-                  this.sourceUrl =
-                      sourceUrl;
+                  Stop();
 
-                  Port =
-                      FindFreePort();
+                  Port = GetFreePort();
 
-                  listener =
-                      new HttpListener();
+                  LocalAddress =
+                      GetLocalIPv4();
 
-                  listener.Prefixes.Add(
-                      $"http://127.0.0.1:{Port}/");
+                  _cts =
+                      new CancellationTokenSource();
 
-                  listener.Prefixes.Add(
-                      $"http://+:{Port}/");
+                  _listener =
+                      new TcpListener(
+                          IPAddress.Any,
+                          Port);
 
-                  PublicUrl =
-                      $"http://{GetLocalIPv4()}:{Port}/media";
+                  _listener.Start();
 
-                  listener.Start();
+                  _ = AcceptLoopAsync(
+                      sourceUrl,
+                      _cts.Token);
 
-                  _ = Task.Run(
-                      ListenLoopAsync);
+                  return
+                      $"http://{LocalAddress}:{Port}/media";
               }
 
-              private async Task ListenLoopAsync()
+
+              private async Task AcceptLoopAsync(
+                  string sourceUrl,
+                  CancellationToken token)
               {
-                  while (!cts.IsCancellationRequested)
+                  if (_listener == null)
+                      return;
+
+                  while (!token.IsCancellationRequested)
                   {
+                      TcpClient? client = null;
+
                       try
                       {
-                          var context =
-                              await listener.GetContextAsync();
+                          client =
+                              await _listener.AcceptTcpClientAsync(
+                                  token);
 
-                          _ = Task.Run(
-                              () => HandleAsync(context));
+                          _ = HandleClientAsync(
+                              client,
+                              sourceUrl,
+                              token);
                       }
                       catch
                       {
-                          if (cts.IsCancellationRequested)
-                              return;
+                          client?.Dispose();
+
+                          if (token.IsCancellationRequested)
+                              break;
                       }
                   }
               }
 
-              private async Task HandleAsync(
-                  HttpListenerContext context)
+
+              private async Task HandleClientAsync(
+                  TcpClient client,
+                  string sourceUrl,
+                  CancellationToken token)
               {
-                  try
+                  using (client)
                   {
-                      var path =
-                          context.Request.Url
-                              ?.AbsolutePath;
-
-                      if (!string.Equals(
-                              path,
-                              "/media",
-                              StringComparison.OrdinalIgnoreCase))
+                      try
                       {
-                          context.Response.StatusCode =
-                              404;
+                          using NetworkStream stream =
+                              client.GetStream();
 
-                          context.Response.Close();
+                          stream.ReadTimeout = 15000;
+                          stream.WriteTimeout = 15000;
 
-                          return;
-                      }
+                          using var reader =
+                              new StreamReader(
+                                  stream,
+                                  Encoding.ASCII,
+                                  false,
+                                  8192,
+                                  true);
 
-                      using var http =
-                          new HttpClient();
+                          string? requestLine =
+                              await reader.ReadLineAsync();
 
-                      using var request =
-                          new HttpRequestMessage(
-                              HttpMethod.Get,
-                              sourceUrl);
+                          if (string.IsNullOrWhiteSpace(requestLine))
+                              return;
 
-                      var range =
-                          context.Request.Headers["Range"];
+                          string? line;
 
-                      if (!string.IsNullOrWhiteSpace(
-                              range))
-                      {
-                          request.Headers
-                              .TryAddWithoutValidation(
+                          string? range = null;
+
+                          while (!string.IsNullOrEmpty(
+                                     line = await reader.ReadLineAsync()))
+                          {
+                              if (line.StartsWith(
+                                      "Range:",
+                                      StringComparison.OrdinalIgnoreCase))
+                              {
+                                  range =
+                                      line[6..].Trim();
+                              }
+                          }
+
+                          using var request =
+                              new HttpRequestMessage(
+                                  HttpMethod.Get,
+                                  sourceUrl);
+
+                          if (!string.IsNullOrWhiteSpace(range))
+                          {
+                              request.Headers.TryAddWithoutValidation(
                                   "Range",
                                   range);
-                      }
+                          }
 
-                      using var response =
-                          await http.SendAsync(
-                              request,
-                              HttpCompletionOption
-                                  .ResponseHeadersRead,
-                              cts.Token);
+                          request.Headers.TryAddWithoutValidation(
+                              "User-Agent",
+                              "DLNABrowser/1.0");
 
-                      context.Response.StatusCode =
-                          (int)response.StatusCode;
+                          using HttpResponseMessage response =
+                              await _http.SendAsync(
+                                  request,
+                                  HttpCompletionOption.ResponseHeadersRead,
+                                  token);
 
-                      var contentType =
-                          response.Content
-                              .Headers
-                              .ContentType;
+                          string contentType =
+                              response.Content.Headers.ContentType?.ToString()
+                              ?? GuessContentType(sourceUrl);
 
-                      if (contentType != null)
-                      {
-                          context.Response.ContentType =
-                              contentType.ToString();
-                      }
+                          long? contentLength =
+                              response.Content.Headers.ContentLength;
 
-                      var contentLength =
-                          response.Content
-                              .Headers
-                              .ContentLength;
+                          var headers =
+                              new StringBuilder();
 
-                      if (contentLength.HasValue)
-                      {
-                          context.Response
-                              .ContentLength64 =
-                              contentLength.Value;
-                      }
+                          headers.Append(
+                              $"HTTP/1.1 {(int)response.StatusCode} {response.ReasonPhrase}\r\n");
 
-                      var contentRange =
-                          response.Content
-                              .Headers
-                              .ContentRange;
+                          headers.Append(
+                              $"Content-Type: {contentType}\r\n");
 
-                      if (contentRange != null)
-                      {
-                          context.Response.Headers[
-                              "Content-Range"] =
-                              contentRange.ToString();
-                      }
+                          headers.Append(
+                              "Accept-Ranges: bytes\r\n");
 
-                      context.Response.Headers[
-                          "Accept-Ranges"] =
-                          "bytes";
+                          if (contentLength.HasValue)
+                          {
+                              headers.Append(
+                                  $"Content-Length: {contentLength.Value}\r\n");
+                          }
 
-                      await using var stream =
-                          await response.Content
-                              .ReadAsStreamAsync(
-                                  cts.Token);
+                          if (response.Content.Headers.ContentRange != null)
+                          {
+                              headers.Append(
+                                  $"Content-Range: {response.Content.Headers.ContentRange}\r\n");
+                          }
 
-                      await stream.CopyToAsync(
-                          context.Response.OutputStream,
-                          cts.Token);
-                  }
-                  catch
-                  {
-                      try
-                      {
-                          context.Response.StatusCode =
-                              500;
+                          headers.Append(
+                              "Access-Control-Allow-Origin: *\r\n");
+
+                          headers.Append(
+                              "Connection: close\r\n");
+
+                          headers.Append("\r\n");
+
+                          byte[] headerBytes =
+                              Encoding.ASCII.GetBytes(
+                                  headers.ToString());
+
+                          await stream.WriteAsync(
+                              headerBytes,
+                              token);
+
+                          await using Stream source =
+                              await response.Content.ReadAsStreamAsync(
+                                  token);
+
+                          byte[] buffer =
+                              new byte[64 * 1024];
+
+                          int read;
+
+                          while ((read =
+                                  await source.ReadAsync(
+                                      buffer,
+                                      token)) > 0)
+                          {
+                              await stream.WriteAsync(
+                                  buffer.AsMemory(0, read),
+                                  token);
+                          }
                       }
                       catch
                       {
-                      }
-                  }
-                  finally
-                  {
-                      try
-                      {
-                          context.Response.Close();
-                      }
-                      catch
-                      {
+                          // La TV puede cerrar la conexión al cambiar
+                          // de vídeo o detener la reproducción.
                       }
                   }
               }
 
-              private static int FindFreePort()
+
+              private static string GuessContentType(
+                  string url)
               {
-                  var tcp =
+                  string lower =
+                      url.ToLowerInvariant();
+
+                  if (lower.Contains(".webm"))
+                      return "video/webm";
+
+                  if (lower.Contains(".m3u8"))
+                      return "application/vnd.apple.mpegurl";
+
+                  if (lower.Contains(".mp4"))
+                      return "video/mp4";
+
+                  if (lower.Contains(".mkv"))
+                      return "video/x-matroska";
+
+                  if (lower.Contains(".avi"))
+                      return "video/x-msvideo";
+
+                  return "application/octet-stream";
+              }
+
+
+              private static int GetFreePort()
+              {
+                  using var tcp =
                       new TcpListener(
                           IPAddress.Loopback,
                           0);
 
                   tcp.Start();
 
-                  var port =
-                      ((IPEndPoint)
-                          tcp.LocalEndpoint).Port;
-
-                  tcp.Stop();
-
-                  return port;
+                  return
+                      ((IPEndPoint)tcp.LocalEndpoint).Port;
               }
+
 
               private static string GetLocalIPv4()
               {
-                  var host =
-                      Dns.GetHostEntry(
-                          Dns.GetHostName());
-
-                  foreach (
-                      var address
-                      in host.AddressList)
+                  try
                   {
-                      if (
-                          address.AddressFamily ==
+                      using var socket =
+                          new Socket(
+                              AddressFamily.InterNetwork,
+                              SocketType.Dgram,
+                              ProtocolType.Udp);
+
+                      socket.Connect(
+                          "8.8.8.8",
+                          65530);
+
+                      if (socket.LocalEndPoint
+                          is IPEndPoint ep)
+                      {
+                          return ep.Address.ToString();
+                      }
+                  }
+                  catch
+                  {
+                  }
+
+                  foreach (var address
+                           in Dns.GetHostAddresses(
+                               Dns.GetHostName()))
+                  {
+                      if (address.AddressFamily ==
                           AddressFamily.InterNetwork &&
-                          !IPAddress.IsLoopback(
-                              address))
+                          !IPAddress.IsLoopback(address))
                       {
                           return address.ToString();
                       }
@@ -775,31 +1002,46 @@ jobs:
                   return "127.0.0.1";
               }
 
-              public void Dispose()
-              {
-                  cts.Cancel();
 
+              public void Stop()
+              {
                   try
                   {
-                      listener.Stop();
+                      _cts?.Cancel();
                   }
                   catch
                   {
                   }
 
-                  listener.Close();
+                  try
+                  {
+                      _listener?.Stop();
+                  }
+                  catch
+                  {
+                  }
 
-                  cts.Dispose();
+                  _listener = null;
+
+                  _cts?.Dispose();
+                  _cts = null;
+              }
+
+
+              public void Dispose()
+              {
+                  Stop();
+                  _http.Dispose();
               }
           }
-          '@ | Set-Content `
-            -Path (Join-Path $root "LocalMediaServer.cs") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\LocalMediaServer.cs -Encoding UTF8
+
 
           @'
           using Microsoft.Web.WebView2.Core;
           using System;
-          using System.Text.Json;
+          using System.Collections.Generic;
+          using System.Linq;
           using System.Threading.Tasks;
           using System.Windows;
           using System.Windows.Input;
@@ -808,146 +1050,241 @@ jobs:
 
           public partial class MainWindow : Window
           {
-              private readonly List<DlnaDevice> devices =
-                  new();
+              private readonly DlnaRenderer _renderer = new();
+              private readonly LocalMediaServer _mediaServer = new();
 
-              private LocalMediaServer? mediaServer;
+              private List<DlnaDevice> _devices = new();
+
+              private bool _browserReady;
+              private bool _casting;
+
 
               public MainWindow()
               {
                   InitializeComponent();
 
-                  Loaded +=
-                      MainWindow_Loaded;
-
-                  Closed +=
-                      MainWindow_Closed;
+                  Loaded += MainWindow_Loaded;
+                  Closed += MainWindow_Closed;
               }
+
 
               private async void MainWindow_Loaded(
                   object sender,
                   RoutedEventArgs e)
               {
+                  await InitializeBrowserAsync();
+              }
+
+
+              private async Task InitializeBrowserAsync()
+              {
                   try
                   {
-                      await Browser
-                          .EnsureCoreWebView2Async();
+                      string? version =
+                          CoreWebView2Environment
+                              .GetAvailableBrowserVersionString();
+
+                      if (string.IsNullOrWhiteSpace(version))
+                      {
+                          MessageBox.Show(
+                              "WebView2 Runtime no está instalado.\n\n" +
+                              "Ejecuta Start-DLNABrowser.bat para instalarlo " +
+                              "automáticamente.",
+                              "DLNA Browser",
+                              MessageBoxButton.OK,
+                              MessageBoxImage.Warning);
+
+                          return;
+                      }
+
+                      await Browser.EnsureCoreWebView2Async();
 
                       Browser.CoreWebView2.Settings
-                          .AreDefaultContextMenusEnabled =
-                          true;
+                          .AreDefaultContextMenusEnabled = true;
 
                       Browser.CoreWebView2.Settings
-                          .AreDevToolsEnabled =
-                          true;
+                          .AreDevToolsEnabled = true;
+
+                      Browser.CoreWebView2.NavigationCompleted +=
+                          Browser_NavigationCompleted;
 
                       Browser.CoreWebView2.Navigate(
                           "https://www.google.com");
+
+                      _browserReady = true;
+
+                      StatusText.Text =
+                          "Listo — el vídeo se reproduce en el PC. " +
+                          "Pulsa «Enviar a TV» solamente cuando quieras transmitirlo.";
                   }
                   catch (Exception ex)
                   {
-                      StatusText.Text =
-                          "WebView2 error: " +
-                          ex.Message;
+                      MessageBox.Show(
+                          "No se pudo iniciar el navegador.\n\n" +
+                          ex.Message,
+                          "DLNA Browser",
+                          MessageBoxButton.OK,
+                          MessageBoxImage.Error);
                   }
-
-                  await DiscoverTvsAsync();
               }
 
-              private async Task DiscoverTvsAsync()
+
+              private void Browser_NavigationCompleted(
+                  object? sender,
+                  CoreWebView2NavigationCompletedEventArgs e)
               {
-                  StatusText.Text =
-                      "Buscando TVs DLNA...";
-
-                  try
+                  if (Browser.CoreWebView2 != null)
                   {
-                      devices.Clear();
-
-                      var found =
-                          await SsdpDiscovery
-                              .DiscoverAsync();
-
-                      devices.AddRange(found);
-
-                      TvCombo.Items.Clear();
-
-                      foreach (var device in devices)
-                      {
-                          TvCombo.Items.Add(
-                              device);
-                      }
-
-                      if (TvCombo.Items.Count > 0)
-                      {
-                          TvCombo.SelectedIndex = 0;
-
-                          StatusText.Text =
-                              $"TVs encontradas: {TvCombo.Items.Count}";
-                      }
-                      else
-                      {
-                          StatusText.Text =
-                              "No se encontraron TVs DLNA.";
-                      }
-                  }
-                  catch (Exception ex)
-                  {
-                      StatusText.Text =
-                          "Error DLNA: " +
-                          ex.Message;
+                      AddressBox.Text =
+                          Browser.CoreWebView2.Source;
                   }
               }
 
-              private void GoButton_Click(
-                  object sender,
-                  RoutedEventArgs e)
-              {
-                  var url =
-                      AddressBar.Text.Trim();
 
-                  if (string.IsNullOrWhiteSpace(url))
-                      return;
-
-                  if (!url.StartsWith(
-                          "http://",
-                          StringComparison.OrdinalIgnoreCase) &&
-                      !url.StartsWith(
-                          "https://",
-                          StringComparison.OrdinalIgnoreCase))
-                  {
-                      url =
-                          "https://" + url;
-                  }
-
-                  AddressBar.Text =
-                      url;
-
-                  Browser.CoreWebView2.Navigate(
-                      url);
-              }
-
-              private void AddressBar_KeyDown(
+              private void AddressBox_KeyDown(
                   object sender,
                   KeyEventArgs e)
               {
                   if (e.Key == Key.Enter)
                   {
-                      GoButton_Click(
-                          sender,
-                          new RoutedEventArgs());
+                      NavigateAddress();
                   }
               }
 
-              private async void SendButton_Click(
+
+              private void GoButton_Click(
                   object sender,
                   RoutedEventArgs e)
               {
-                  if (TvCombo.SelectedItem
-                      is not DlnaDevice tv)
+                  NavigateAddress();
+              }
+
+
+              private void NavigateAddress()
+              {
+                  if (!_browserReady)
+                      return;
+
+                  string url =
+                      AddressBox.Text.Trim();
+
+                  if (string.IsNullOrWhiteSpace(url))
+                      return;
+
+                  if (!url.Contains("://"))
+                  {
+                      url = "https://www.google.com/search?q=" +
+                            Uri.EscapeDataString(url);
+                  }
+
+                  Browser.CoreWebView2.Navigate(url);
+              }
+
+
+              private void BackButton_Click(
+                  object sender,
+                  RoutedEventArgs e)
+              {
+                  if (_browserReady &&
+                      Browser.CoreWebView2.CanGoBack)
+                  {
+                      Browser.CoreWebView2.GoBack();
+                  }
+              }
+
+
+              private void ForwardButton_Click(
+                  object sender,
+                  RoutedEventArgs e)
+              {
+                  if (_browserReady &&
+                      Browser.CoreWebView2.CanGoForward)
+                  {
+                      Browser.CoreWebView2.GoForward();
+                  }
+              }
+
+
+              private void ReloadButton_Click(
+                  object sender,
+                  RoutedEventArgs e)
+              {
+                  if (_browserReady)
+                      Browser.CoreWebView2.Reload();
+              }
+
+
+              private void HomeButton_Click(
+                  object sender,
+                  RoutedEventArgs e)
+              {
+                  if (_browserReady)
+                      Browser.CoreWebView2.Navigate(
+                          "https://www.google.com");
+              }
+
+
+              private async void DiscoverButton_Click(
+                  object sender,
+                  RoutedEventArgs e)
+              {
+                  await DiscoverDevicesAsync();
+              }
+
+
+              private async Task DiscoverDevicesAsync()
+              {
+                  DiscoverButton.IsEnabled = false;
+
+                  StatusText.Text =
+                      "Buscando televisores DLNA/UPnP...";
+
+                  try
+                  {
+                      _devices =
+                          await SsdpDiscovery.DiscoverAsync();
+
+                      DeviceCombo.ItemsSource =
+                          _devices;
+
+                      if (_devices.Count > 0)
+                      {
+                          DeviceCombo.SelectedIndex = 0;
+
+                          StatusText.Text =
+                              $"Encontrados {_devices.Count} reproductor(es) DLNA.";
+                      }
+                      else
+                      {
+                          StatusText.Text =
+                              "No se encontraron dispositivos DLNA.";
+                      }
+                  }
+                  catch (Exception ex)
+                  {
+                      StatusText.Text =
+                          "Error buscando dispositivos: " +
+                          ex.Message;
+                  }
+                  finally
+                  {
+                      DiscoverButton.IsEnabled = true;
+                  }
+              }
+
+
+              private async void CastButton_Click(
+                  object sender,
+                  RoutedEventArgs e)
+              {
+                  if (!_browserReady)
+                      return;
+
+                  if (DeviceCombo.SelectedItem is not DlnaDevice device)
                   {
                       MessageBox.Show(
-                          "Selecciona una TV DLNA primero.",
-                          "DLNA",
+                          "Primero selecciona una TV DLNA.",
+                          "DLNA Browser",
                           MessageBoxButton.OK,
                           MessageBoxImage.Information);
 
@@ -956,38 +1293,45 @@ jobs:
 
                   try
                   {
+                      CastButton.IsEnabled = false;
+
                       StatusText.Text =
-                          "Detectando video...";
+                          "Detectando el vídeo que está reproduciendo...";
 
-                      var scriptResult =
-                          await Browser
-                              .CoreWebView2
-                              .ExecuteScriptAsync(
-                                  """
-                                  (() => {
-                                      const video =
-                                          document.querySelector("video");
+                      string? videoUrl =
+                          await Browser.CoreWebView2.ExecuteScriptAsync(
+                              """
+                              (() => {
+                                  const videos =
+                                      Array.from(document.querySelectorAll("video"));
 
-                                      if (!video)
-                                          return "";
+                                  for (const v of videos) {
+                                      if (!v.paused && v.currentSrc)
+                                          return v.currentSrc;
+                                  }
 
-                                      return video.currentSrc ||
-                                             video.src ||
-                                             "";
-                                  })()
-                                  """);
+                                  for (const v of videos) {
+                                      if (v.currentSrc)
+                                          return v.currentSrc;
+                                  }
 
-                      var videoUrl =
-                          JsonSerializer
-                              .Deserialize<string>(
-                                  scriptResult);
+                                  return "";
+                              })()
+                              """);
 
-                      if (string.IsNullOrWhiteSpace(
-                              videoUrl))
+                      videoUrl =
+                          System.Text.Json.JsonSerializer
+                              .Deserialize<string>(videoUrl);
+
+                      if (string.IsNullOrWhiteSpace(videoUrl))
                       {
                           MessageBox.Show(
-                              "No se encontró un elemento <video> en esta página.",
-                              "DLNA",
+                              "No pude encontrar un vídeo reproducible " +
+                              "en la página actual.\n\n" +
+                              "El sitio puede utilizar DRM, blob: o un " +
+                              "sistema de reproducción que no expone una URL " +
+                              "directa al navegador.",
+                              "DLNA Browser",
                               MessageBoxButton.OK,
                               MessageBoxImage.Information);
 
@@ -999,316 +1343,253 @@ jobs:
                               StringComparison.OrdinalIgnoreCase))
                       {
                           MessageBox.Show(
-                              "El video usa una URL blob interna. Se necesita una URL HTTP/HTTPS accesible por la TV.",
-                              "DLNA",
+                              "Este vídeo utiliza una URL blob: y no puede " +
+                              "enviarse directamente mediante DLNA.",
+                              "DLNA Browser",
                               MessageBoxButton.OK,
                               MessageBoxImage.Information);
 
                           return;
                       }
 
-                      string finalUrl;
-                      string contentType;
+                      StatusText.Text =
+                          "Preparando vídeo para la TV...";
 
-                      if (videoUrl.EndsWith(
-                              ".m3u8",
+                      string mediaUrl;
+
+                      if (videoUrl.StartsWith(
+                              "http://",
+                              StringComparison.OrdinalIgnoreCase) ||
+                          videoUrl.StartsWith(
+                              "https://",
                               StringComparison.OrdinalIgnoreCase))
                       {
-                          finalUrl =
-                              videoUrl;
-
-                          contentType =
-                              "application/vnd.apple.mpegurl";
+                          mediaUrl =
+                              await _mediaServer.StartAsync(
+                                  videoUrl);
                       }
                       else
                       {
-                          mediaServer?.Dispose();
-
-                          mediaServer =
-                              new LocalMediaServer(
-                                  videoUrl);
-
-                          finalUrl =
-                              mediaServer.PublicUrl;
-
-                          contentType =
-                              "video/mp4";
+                          throw new Exception(
+                              "La URL del vídeo no es HTTP/HTTPS.");
                       }
 
-                      StatusText.Text =
-                          "Enviando a " +
-                          tv.FriendlyName +
-                          "...";
+                      string title =
+                          "Vídeo desde DLNA Browser";
 
-                      await DlnaRenderer
-                          .SetMediaAsync(
-                              tv,
-                              finalUrl,
-                              contentType);
+                      await _renderer.SetMediaAsync(
+                          device,
+                          mediaUrl,
+                          title);
 
-                      await DlnaRenderer
-                          .PlayAsync(
-                              tv);
+                      await _renderer.PlayAsync(
+                          device);
+
+                      _casting = true;
 
                       StatusText.Text =
-                          "Video enviado correctamente.";
+                          $"📺 Transmitiendo a {device.DisplayName}";
+
                   }
                   catch (Exception ex)
                   {
                       StatusText.Text =
-                          "Error: " +
-                          ex.Message;
+                          "Error enviando a la TV.";
 
                       MessageBox.Show(
-                          ex.ToString(),
-                          "Error DLNA",
+                          "No se pudo enviar el vídeo.\n\n" +
+                          ex.Message,
+                          "DLNA Browser",
                           MessageBoxButton.OK,
                           MessageBoxImage.Error);
                   }
+                  finally
+                  {
+                      CastButton.IsEnabled = true;
+                  }
               }
 
-              private async void RefreshButton_Click(
+
+              private async void StopCastButton_Click(
                   object sender,
                   RoutedEventArgs e)
               {
-                  await DiscoverTvsAsync();
+                  if (DeviceCombo.SelectedItem is DlnaDevice device &&
+                      _casting)
+                  {
+                      try
+                      {
+                          await _renderer.StopAsync(
+                              device);
+                      }
+                      catch
+                      {
+                      }
+                  }
+
+                  _casting = false;
+
+                  _mediaServer.Stop();
+
+                  StatusText.Text =
+                      "Transmisión detenida. " +
+                      "El vídeo vuelve a reproducirse solamente en el PC.";
               }
 
-              private async void StopButton_Click(
-                  object sender,
-                  RoutedEventArgs e)
-              {
-                  if (TvCombo.SelectedItem
-                      is not DlnaDevice tv)
-                  {
-                      return;
-                  }
-
-                  try
-                  {
-                      await DlnaRenderer
-                          .StopAsync(tv);
-
-                      StatusText.Text =
-                          "Reproducción detenida.";
-                  }
-                  catch (Exception ex)
-                  {
-                      StatusText.Text =
-                          "Error: " +
-                          ex.Message;
-                  }
-              }
 
               private void MainWindow_Closed(
                   object? sender,
                   EventArgs e)
               {
-                  mediaServer?.Dispose();
+                  _mediaServer.Dispose();
               }
           }
-          '@ | Set-Content `
-            -Path (Join-Path $root "MainWindow.xaml.cs") `
-            -Encoding UTF8
+          '@ | Set-Content src\DLNABrowser\MainWindow.xaml.cs -Encoding UTF8
 
+
+          # Launcher
           @'
-          <Window
-              x:Class="DLNABrowser.MainWindow"
-              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-              Title="DLNA Browser"
-              Width="1400"
-              Height="850"
-              MinWidth="900"
-              MinHeight="600"
-              Background="#101218"
-              Foreground="White">
+          @echo off
+          setlocal
 
-            <Grid>
-              <Grid.RowDefinitions>
-                <RowDefinition Height="52"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="62"/>
-              </Grid.RowDefinitions>
+          cd /d "%~dp0"
 
-              <Grid
-                  Grid.Row="0"
-                  Background="#1b1f2a">
+          echo ==============================================
+          echo DLNA BROWSER
+          echo ==============================================
+          echo.
 
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+          if exist "%~dp0MicrosoftEdgeWebview2Setup.exe" (
+              echo Comprobando WebView2 Runtime...
+              "%~dp0MicrosoftEdgeWebview2Setup.exe" /silent /install
+          )
 
-                <Button
-                    Grid.Column="0"
-                    Content="←"
-                    Width="44"
-                    Margin="6"
-                    Click="GoButton_Click"/>
+          echo.
+          echo Iniciando DLNA Browser...
+          echo.
 
-                <TextBox
-                    x:Name="AddressBar"
-                    Grid.Column="1"
-                    Height="34"
-                    Margin="4"
-                    VerticalContentAlignment="Center"
-                    FontSize="15"
-                    Text="https://www.google.com"
-                    KeyDown="AddressBar_KeyDown"/>
+          start "" "%~dp0DLNABrowser.exe"
 
-                <Button
-                    Grid.Column="2"
-                    Content="Ir"
-                    Width="55"
-                    Margin="4"
-                    Click="GoButton_Click"/>
+          endlocal
+          '@ | Set-Content Start-DLNABrowser.bat -Encoding ASCII
 
-                <Button
-                    Grid.Column="3"
-                    Content="TV"
-                    Width="90"
-                    Margin="4"
-                    Click="SendButton_Click"/>
-              </Grid>
-
-              <wv2:WebView2
-                  x:Name="Browser"
-                  Grid.Row="1"/>
-
-              <Grid
-                  Grid.Row="2"
-                  Background="#1b1f2a">
-
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="260"/>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <TextBlock
-                    Grid.Column="0"
-                    Text="TV:"
-                    VerticalAlignment="Center"
-                    Margin="12,0,6,0"
-                    FontWeight="Bold"/>
-
-                <ComboBox
-                    x:Name="TvCombo"
-                    Grid.Column="1"
-                    Height="34"
-                    VerticalAlignment="Center"
-                    DisplayMemberPath="FriendlyName"/>
-
-                <Button
-                    Grid.Column="2"
-                    Content="TVs"
-                    Height="34"
-                    Margin="8,0"
-                    Padding="12,0"
-                    Click="RefreshButton_Click"/>
-
-                <TextBlock
-                    x:Name="StatusText"
-                    Grid.Column="3"
-                    VerticalAlignment="Center"
-                    Margin="10,0"
-                    Text="Listo."/>
-
-                <Button
-                    Grid.Column="4"
-                    Content="Stop"
-                    Height="34"
-                    Margin="6"
-                    Padding="12,0"
-                    Click="StopButton_Click"/>
-
-              </Grid>
-            </Grid>
-          </Window>
-          '@ | Set-Content `
-            -Path (Join-Path $root "MainWindow.xaml") `
-            -Encoding UTF8
 
       - name: Restore
         shell: pwsh
-        working-directory: src/DLNABrowser
         run: |
-          $ErrorActionPreference = "Stop"
+          dotnet restore src\DLNABrowser\DLNABrowser.csproj
 
-          dotnet restore DLNABrowser.csproj
+      - name: Build
+        shell: pwsh
+        run: |
+          dotnet build `
+            src\DLNABrowser\DLNABrowser.csproj `
+            --configuration Release `
+            --no-restore
 
       - name: Publish
         shell: pwsh
-        working-directory: src/DLNABrowser
         run: |
           $ErrorActionPreference = "Stop"
 
-          dotnet publish DLNABrowser.csproj `
+          dotnet publish `
+            src\DLNABrowser\DLNABrowser.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
             --output publish `
-            -p:PlatformTarget=x64 `
-            -p:DebugType=None `
-            -p:DebugSymbols=false
+            /p:PublishSingleFile=false `
+            /p:DebugType=None `
+            /p:DebugSymbols=false
 
-          if ($LASTEXITCODE -ne 0) {
-              throw "dotnet publish falló."
-          }
-
-          $exe =
-              Join-Path $PWD "publish\DLNABrowser.exe"
-
-          if (-not (Test-Path $exe)) {
+          if (!(Test-Path "publish\DLNABrowser.exe")) {
               throw "DLNABrowser.exe no fue generado."
           }
 
-          Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "EXECUTABLE GENERADO"
-          Write-Host "=============================================="
-          Get-Item $exe |
-              Select-Object FullName, Length
-
-      - name: Create ZIP
+      - name: Download WebView2 Bootstrapper
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $publish =
-              Join-Path $env:GITHUB_WORKSPACE `
-                  "src\DLNABrowser\publish"
+          $url = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 
-          $zip =
-              Join-Path $env:GITHUB_WORKSPACE `
-                  "DLNABrowser-win-x64.zip"
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "publish\MicrosoftEdgeWebview2Setup.exe"
 
-          if (Test-Path $zip) {
-              Remove-Item $zip -Force
+          if (!(Test-Path "publish\MicrosoftEdgeWebview2Setup.exe")) {
+              throw "No se pudo descargar WebView2 Bootstrapper."
+          }
+
+      - name: Copy launcher
+        shell: pwsh
+        run: |
+          Copy-Item `
+            "Start-DLNABrowser.bat" `
+            "publish\Start-DLNABrowser.bat" `
+            -Force
+
+      - name: Create README
+        shell: pwsh
+        run: |
+          @'
+          DLNA Browser
+          ============
+
+          1. Ejecuta:
+
+             Start-DLNABrowser.bat
+
+          2. El navegador funciona normalmente en el PC.
+
+          3. Los vídeos NO se envían automáticamente a la TV.
+
+          4. Para transmitir:
+
+             - reproduce un vídeo
+             - pulsa "Buscar TV"
+             - selecciona tu TV
+             - pulsa "Enviar a TV"
+
+          5. Para detener:
+
+             pulsa "Detener TV"
+
+          IMPORTANTE
+          ==========
+
+          La TV debe soportar DLNA/UPnP MediaRenderer.
+
+          El PC y la TV deben estar en la misma red local.
+
+          No todos los sitios web pueden transmitirse mediante DLNA.
+
+          Vídeos MP4/HTTP son los casos más compatibles.
+
+          Los vídeos DRM, algunas transmisiones blob:, ciertos
+          HLS/DASH y reproductores protegidos pueden no exponer
+          una URL que la TV pueda reproducir.
+
+          El navegador sigue funcionando localmente aunque no
+          haya ninguna TV disponible.
+          '@ | Set-Content publish\README.txt -Encoding UTF8
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (Test-Path "DLNABrowser-win-x64.zip") {
+              Remove-Item "DLNABrowser-win-x64.zip" -Force
           }
 
           Compress-Archive `
-              -Path "$publish\*" `
-              -DestinationPath $zip `
-              -CompressionLevel Optimal
+            -Path "publish\*" `
+            -DestinationPath "DLNABrowser-win-x64.zip" `
+            -CompressionLevel Optimal
 
-          if (-not (Test-Path $zip)) {
-              throw "No se pudo crear el ZIP."
-          }
-
-          Write-Host ""
-          Write-Host "=============================================="
-          Write-Host "ZIP GENERADO"
-          Write-Host "=============================================="
-
-          Get-Item $zip |
-              Select-Object FullName, Length
+          Get-Item "DLNABrowser-win-x64.zip" |
+            Select-Object FullName, Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -1317,3 +1598,4 @@ jobs:
           path: DLNABrowser-win-x64.zip
           if-no-files-found: error
           compression-level: 0
+          retention-days: 30
