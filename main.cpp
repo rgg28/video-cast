@@ -38,12 +38,13 @@ std::wstring SeleccionarVideoVentana(HWND hWnd) {
     return L"";
 }
 
-// Escaneo en red mediante SSDP M-SEARCH (Radar WiFi)
+// Escaneo en red mediante SSDP M-SEARCH (Radar WiFi Universal)
 DispositivoDLNA BuscarTelevisionEnRed() {
     DispositivoDLNA tv;
     SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     
-    DWORD timeout = 4000; // 4 segundos de tolerancia para buscar
+    // Aumentamos el tiempo de espera a 8 segundos por si la TV tarda en despertar
+    DWORD timeout = 8000; 
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
 
     sockaddr_in grupoCast;
@@ -51,36 +52,48 @@ DispositivoDLNA BuscarTelevisionEnRed() {
     grupoCast.sin_port = htons(1900);
     grupoCast.sin_addr.s_addr = inet_addr("239.255.255.250");
 
+    // Cambiamos ST a ssdp:all para que responda CUALQUIER dispositivo de la red
     std::string mSearch = 
         "M-SEARCH * HTTP/1.1\r\n"
         "HOST: 239.255.255.250:1900\r\n"
         "MAN: \"ssdp:discover\"\r\n"
-        "ST: urn:schemas-upnp-org:service:AVTransport:1\r\n"
+        "ST: ssdp:all\r\n"
         "MX: 3\r\n\r\n";
 
     sendto(sock, mSearch.c_str(), mSearch.length(), 0, (SOCKADDR*)&grupoCast, sizeof(grupoCast));
 
-    char buffer[2048] = {0};
+    char buffer[4096] = {0}; // Buffer amplio para las respuestas detalladas
     sockaddr_in desde;
     int desdeLen = sizeof(desde);
     
-    int bytesRecibidos = recvfrom(sock, buffer, sizeof(buffer) - 1, 0, (SOCKADDR*)&desde, &desdeLen);
-    if (bytesRecibidos > 0) {
+    // Bucle para leer respuestas de la red hasta encontrar una TV o agotar el tiempo
+    while (true) {
+        int bytesRecibidos = recvfrom(sock, buffer, sizeof(buffer) - 1, 0, (SOCKADDR*)&desde, &desdeLen);
+        if (bytesRecibidos <= 0) break; // Si pasa el tiempo o hay error, salimos del bucle
+
         std::string respuesta(buffer);
-        tv.ip = inet_ntoa(desde.sin_addr);
         
-        size_t locPos = respuesta.find("LOCATION: http://");
-        if (locPos != std::string::npos) {
-            size_t start = locPos + 17; 
-            size_t end = respuesta.find("/", start);
-            std::string hostPort = respuesta.substr(start, end - start);
+        // Si la respuesta contiene "AVTransport" o "MediaRenderer", ¡es nuestra TV!
+        if (respuesta.find("AVTransport") != std::string::npos || respuesta.find("MediaRenderer") != std::string::npos) {
+            tv.ip = inet_ntoa(desde.sin_addr);
             
-            size_t colon = hostPort.find(":");
-            if (colon != std::string::npos) {
-                tv.puerto = std::stoi(hostPort.substr(colon + 1));
+            size_t locPos = respuesta.find("LOCATION: http://");
+            if (locPos != std::string::npos) {
+                size_t start = locPos + 17; 
+                size_t end = respuesta.find("/", start);
+                std::string hostPort = respuesta.substr(start, end - start);
+                
+                size_t colon = hostPort.find(":");
+                if (colon != std::string::npos) {
+                    tv.puerto = std::stoi(hostPort.substr(colon + 1));
+                }
             }
+            break; // Encontramos la TV, salimos con éxito
         }
+        // Limpiar el buffer para la siguiente respuesta en la red
+        memset(buffer, 0, sizeof(buffer));
     }
+
     closesocket(sock);
     return tv;
 }
@@ -128,7 +141,7 @@ void IniciarServidorMultimedia(std::string ip, int puerto, std::string rutaVideo
     }
 }
 
-// Inyección SOAP UPnP para interactuar con la TV
+// Inyección SOAP UPnP para enviar las órdenes a la TV
 void EnviarComandoTV(std::string tvIp, int tvPuerto, std::string urlControl, std::string soapAction, std::string xmlBody) {
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     sockaddr_in target;
@@ -153,7 +166,7 @@ void EnviarComandoTV(std::string tvIp, int tvPuerto, std::string urlControl, std
     closesocket(sock);
 }
 
-// Punto de entrada estándar sin ventana negra de comandos
+// Punto de entrada estándar sin ventana negra de comandos (Usa tu flag -mwindows)
 int main(int argc, char* argv[]) {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -173,10 +186,10 @@ int main(int argc, char* argv[]) {
         rutaVideo = std::string(pathW.begin(), pathW.end());
     }
 
-    // 1. Escaneo automático por WiFi
+    // 1. Escaneo automático universal por WiFi
     DispositivoDLNA tv = BuscarTelevisionEnRed();
     if (tv.ip.empty()) {
-        MessageBoxW(NULL, L"No se encontró ninguna TV compatible conectada a tu red WiFi actual.", L"Error de Conexión", MB_OK | MB_ICONERROR);
+        MessageBoxW(NULL, L"No se encontró ninguna TV compatible conectada a tu red WiFi actual.\n\nPrueba desactivando temporalmente el Firewall de Windows.", L"Error de Conexión", MB_OK | MB_ICONERROR);
         WSACleanup();
         return 1;
     }
